@@ -1,4 +1,4 @@
-(function () {
+(async function () {
   if ((window as any).__LAYRR_LOADED__) return;
   (window as any).__LAYRR_LOADED__ = true;
 
@@ -400,7 +400,25 @@
     return p.join(' › ');
   }
 
-  function extractSourceInfo(el: HTMLElement) {
+  // Use element-source for accurate source mapping across React, Vue, Svelte, Solid, Preact
+  let _resolveSource: ((node: object) => Promise<{ filePath: string; lineNumber: number | null; columnNumber: number | null; componentName: string | null } | null>) | null = null;
+  try {
+    const es = await import('element-source');
+    const resolver = es.createSourceResolver({ resolvers: [es.vueResolver, es.svelteResolver, es.solidResolver, es.preactResolver] });
+    _resolveSource = resolver.resolveSource;
+  } catch {}
+
+  async function extractSourceInfo(el: HTMLElement): Promise<{ file: string; line: number; column?: number } | null> {
+    // Primary: element-source (works for React 19+, Vue, Svelte, Solid, Preact)
+    if (_resolveSource) {
+      try {
+        const info = await _resolveSource(el);
+        if (info?.filePath && info.lineNumber) {
+          return { file: info.filePath, line: info.lineNumber, column: info.columnNumber ?? undefined };
+        }
+      } catch {}
+    }
+    // Fallback: manual React fiber / Vue instance extraction
     const fk = Object.keys(el).find(k => k.startsWith('__reactFiber$') || k.startsWith('__reactInternalInstance$'));
     if (fk) { let f = (el as any)[fk]; while (f) { if (f._debugSource) return { file: f._debugSource.fileName, line: f._debugSource.lineNumber, column: f._debugSource.columnNumber }; f = f.return; } }
     const v = (el as any).__vueParentComponent;
@@ -858,11 +876,15 @@
       }
 
       if (ws?.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'element-selected', selector: getSelector(t), tagName: t.tagName.toLowerCase(), className: t.className || '', textContent: t.textContent?.trim().slice(0, 100) || '', sourceInfo: extractSourceInfo(t), rect: t.getBoundingClientRect().toJSON() }));
+        extractSourceInfo(t).then(sourceInfo => {
+          if (ws?.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'element-selected', selector: getSelector(t), tagName: t.tagName.toLowerCase(), className: t.className || '', textContent: t.textContent?.trim().slice(0, 100) || '', sourceInfo, rect: t.getBoundingClientRect().toJSON() }));
+          }
+        });
       }
     }, true);
 
-    function sendEdit() {
+    async function sendEdit() {
       if (!selectedEl || !ws || ws.readyState !== WebSocket.OPEN) return;
       const instruction = input.value.trim(); if (!instruction) return;
       activeSendBtn = sendBtn;
@@ -873,8 +895,17 @@
 
       if (elements.length === 1) {
         const el = elements[0];
-        ws.send(JSON.stringify({ type: 'edit-request', selector: getSelector(el), tagName: el.tagName.toLowerCase(), className: el.className || '', textContent: el.textContent?.trim().slice(0, 100) || '', instruction, sourceInfo: extractSourceInfo(el) }));
+        const sourceInfo = await extractSourceInfo(el);
+        ws.send(JSON.stringify({ type: 'edit-request', selector: getSelector(el), tagName: el.tagName.toLowerCase(), className: el.className || '', textContent: el.textContent?.trim().slice(0, 100) || '', instruction, sourceInfo }));
       } else {
+        const sourceInfo = await extractSourceInfo(elements[0]);
+        const resolvedElements = await Promise.all(elements.map(async el => ({
+          selector: getSelector(el),
+          tagName: el.tagName.toLowerCase(),
+          className: el.className || '',
+          textContent: el.textContent?.trim().slice(0, 100) || '',
+          sourceInfo: await extractSourceInfo(el),
+        })));
         ws.send(JSON.stringify({
           type: 'edit-request',
           selector: getSelector(elements[0]),
@@ -882,14 +913,8 @@
           className: elements[0].className || '',
           textContent: elements[0].textContent?.trim().slice(0, 100) || '',
           instruction,
-          sourceInfo: extractSourceInfo(elements[0]),
-          elements: elements.map(el => ({
-            selector: getSelector(el),
-            tagName: el.tagName.toLowerCase(),
-            className: el.className || '',
-            textContent: el.textContent?.trim().slice(0, 100) || '',
-            sourceInfo: extractSourceInfo(el),
-          })),
+          sourceInfo,
+          elements: resolvedElements,
         }));
       }
       toast('Editing...', 'info');
