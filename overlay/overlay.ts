@@ -4,7 +4,6 @@
 
   const WS_PORT = (window as any).__LAYRR_WS_PORT__ || 4567;
 
-  // ---- Imports ----
   const { L } = await import('./constants');
   const { ensureStyles } = await import('./styles');
   const { createElements, isOwn, toast } = await import('./elements');
@@ -21,7 +20,7 @@
   function showPanel(panel: HTMLElement) {
     const bar = document.getElementById(`${L}-bar`);
     const hp = document.getElementById(`${L}-history`);
-    if (hp) { hp.classList.remove('open'); }
+    if (hp) hp.classList.remove('open');
     bar?.querySelector(`.${L}-bhi`)?.classList.remove('open');
     panel.classList.add('open');
     if (bar) bar.classList.add('expanded');
@@ -55,20 +54,22 @@
     }
   }
 
-  function clearSelection(hl: HTMLElement, label: HTMLElement, panel: HTMLElement) {
+  function clearSelection() {
     app.selectedEl = null;
     app.selectedEls = [];
     clearMultiHighlights();
-    hl.style.display = 'none'; hl.classList.remove('selected');
-    label.style.display = 'none';
-    if (app.mode === 'edit') {
-      updatePanelForSelection(panel);
-    } else {
-      hidePanel(panel);
+    if (app.hlEl) { app.hlEl.style.display = 'none'; app.hlEl.classList.remove('selected'); }
+    if (app.labelEl) app.labelEl.style.display = 'none';
+    if (app.mode === 'edit' && app.panelEl) {
+      updatePanelForSelection();
+    } else if (app.panelEl) {
+      hidePanel(app.panelEl);
     }
   }
 
-  function updatePanelForSelection(panel: HTMLElement) {
+  function updatePanelForSelection() {
+    const panel = app.panelEl;
+    if (!panel) return;
     const ia = panel.querySelector(`.${L}-ia`) as HTMLElement;
     const hn = panel.querySelector(`.${L}-hn`) as HTMLElement;
     const elInfo = panel.querySelector(`.${L}-ei`) as HTMLElement;
@@ -106,11 +107,11 @@
           const idx = parseInt((btn as HTMLElement).dataset.idx || '0');
           app.selectedEls.splice(idx, 1);
           if (app.selectedEls.length === 0) {
-            clearSelection(document.getElementById(`${L}-hl`)!, document.getElementById(`${L}-label`)!, panel);
+            clearSelection();
           } else {
             app.selectedEl = app.selectedEls[app.selectedEls.length - 1];
             updateMultiHighlights();
-            updatePanelForSelection(panel);
+            updatePanelForSelection();
           }
         });
       });
@@ -162,8 +163,8 @@
       clearMultiHighlights();
       app.hoveredEl = null;
       if (app.hlEl) { app.hlEl.style.display = 'none'; app.hlEl.classList.remove('selected'); }
-      if (app.labelEl) { app.labelEl.style.display = 'none'; }
-      if (app.panelEl) { hidePanel(app.panelEl); }
+      if (app.labelEl) app.labelEl.style.display = 'none';
+      if (app.panelEl) hidePanel(app.panelEl);
       save();
       toast('Done!', 'success');
       setTimeout(() => location.reload(), 2500);
@@ -173,7 +174,7 @@
   }
 
   // ---- WebSocket ----
-  function connectWs(bar: HTMLElement) {
+  function connectWs() {
     app.ws = new WebSocket(`ws://${location.hostname}:${WS_PORT}/__layrr__/ws`);
     app.ws.onopen = () => { app.connected = true; app.ws!.send(JSON.stringify({ type: 'overlay-ready' })); };
     app.ws.onmessage = (ev) => {
@@ -212,16 +213,20 @@
         }
       } catch {}
     };
-    app.ws.onclose = () => { app.connected = false; setTimeout(() => connectWs(bar), 2000); };
+    app.ws.onclose = () => { app.connected = false; setTimeout(() => connectWs(), 2000); };
   }
 
   // ---- Mode ----
-  function setMode(m: 'browse' | 'edit', hl: HTMLElement, label: HTMLElement, panel: HTMLElement, bar: HTMLElement, dim: HTMLElement, silent = false) {
+  function setMode(m: 'browse' | 'edit') {
     if (m === 'edit' && app.previewingHash) {
       toast('Go back to latest to make edits', 'info');
       return;
     }
     app.mode = m;
+    const bar = app.barEl;
+    const dim = app.dimEl;
+    const panel = app.panelEl;
+    if (!bar || !dim || !panel) return;
     const br = bar.querySelector(`.${L}-bbr`) as HTMLElement;
     const ed = bar.querySelector(`.${L}-bbe`) as HTMLElement;
     if (m === 'browse') {
@@ -229,31 +234,75 @@
       document.body.style.cursor = ''; dim.classList.remove('active');
       app.selectedEl = null; app.selectedEls = []; app.hoveredEl = null;
       clearMultiHighlights();
-      hl.style.display = 'none'; hl.classList.remove('selected');
-      label.style.display = 'none'; hidePanel(panel);
+      if (app.hlEl) { app.hlEl.style.display = 'none'; app.hlEl.classList.remove('selected'); }
+      if (app.labelEl) app.labelEl.style.display = 'none';
+      hidePanel(panel);
     } else {
       br.classList.remove('active'); ed.classList.add('active');
       document.body.style.cursor = 'crosshair'; dim.classList.add('active');
       app.selectedEl = null; app.selectedEls = []; app.hoveredEl = null;
       clearMultiHighlights();
-      hl.style.display = 'none'; hl.classList.remove('selected');
-      label.style.display = 'none';
-      updatePanelForSelection(panel);
+      if (app.hlEl) { app.hlEl.style.display = 'none'; app.hlEl.classList.remove('selected'); }
+      if (app.labelEl) app.labelEl.style.display = 'none';
+      updatePanelForSelection();
       showPanel(panel);
     }
     const hp = document.getElementById(`${L}-history`);
-    if (hp) { hp.classList.remove('open'); }
+    if (hp) hp.classList.remove('open');
     bar.querySelector(`.${L}-bhi`)?.classList.remove('open');
     if (!panel.classList.contains('open')) bar.classList.remove('expanded');
     save();
   }
 
-  // ---- Init ----
+  // ---- Send edit ----
+  async function sendEdit() {
+    const input = app.inputEl;
+    const sendBtn = app.sendBtnEl;
+    if (!app.selectedEl || !app.ws || app.ws.readyState !== WebSocket.OPEN || !input || !sendBtn) return;
+    const instruction = input.value.trim(); if (!instruction) return;
+    app.activeSendBtn = sendBtn;
+    sendBtn.disabled = true; sendBtn.classList.add('loading');
+
+    const elements = app.selectedEls.length > 1 ? app.selectedEls : [app.selectedEl];
+    app.lastEdit = { tagName: elements.map(e => e.tagName.toLowerCase()).join(', '), instruction };
+
+    if (elements.length === 1) {
+      const el = elements[0];
+      const sourceInfo = await extractSourceInfo(el);
+      app.ws.send(JSON.stringify({ type: 'edit-request', selector: getSelector(el), tagName: el.tagName.toLowerCase(), className: el.className || '', textContent: el.textContent?.trim().slice(0, 100) || '', instruction, sourceInfo }));
+    } else {
+      const sourceInfo = await extractSourceInfo(elements[0]);
+      const resolvedElements = await Promise.all(elements.map(async el => ({
+        selector: getSelector(el),
+        tagName: el.tagName.toLowerCase(),
+        className: el.className || '',
+        textContent: el.textContent?.trim().slice(0, 100) || '',
+        sourceInfo: await extractSourceInfo(el),
+      })));
+      app.ws.send(JSON.stringify({
+        type: 'edit-request',
+        selector: getSelector(elements[0]),
+        tagName: elements[0].tagName.toLowerCase(),
+        className: elements[0].className || '',
+        textContent: elements[0].textContent?.trim().slice(0, 100) || '',
+        instruction,
+        sourceInfo,
+        elements: resolvedElements,
+      }));
+    }
+    toast('Editing...', 'info');
+    startPolling();
+  }
+
+  // ---- Init: creates DOM, sets up bar-local listeners ----
   function init() {
     ensureStyles();
     const { dim, hl, label, panel, bar } = createElements();
     app.hlEl = hl; app.labelEl = label; app.panelEl = panel;
-    connectWs(bar);
+    app.barEl = bar; app.dimEl = dim;
+    app.inputEl = panel.querySelector(`.${L}-in`) as HTMLTextAreaElement;
+    app.sendBtnEl = panel.querySelector(`.${L}-sb`) as HTMLButtonElement;
+    connectWs();
 
     // Check for missed edit results
     fetch('/__layrr__/edit-status').then(r => r.json()).then(data => {
@@ -263,8 +312,7 @@
       }
     }).catch(() => {});
 
-    const input = panel.querySelector(`.${L}-in`) as HTMLTextAreaElement;
-    const sendBtn = panel.querySelector(`.${L}-sb`) as HTMLButtonElement;
+    // Bar-local listeners (safe to re-add — they're on elements that get recreated)
     const closeBtn = panel.querySelector(`.${L}-px`) as HTMLButtonElement;
     const browseBtn = bar.querySelector(`.${L}-bbr`) as HTMLElement;
     const editBtn = bar.querySelector(`.${L}-bbe`) as HTMLElement;
@@ -272,16 +320,20 @@
     const histPanel = document.getElementById(`${L}-history`) as HTMLElement;
     const barDrag = bar.querySelector(`.${L}-bd`) as HTMLElement;
 
-    input.addEventListener('input', () => { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 72) + 'px'; });
-    browseBtn.addEventListener('click', () => setMode('browse', hl, label, panel, bar, dim));
-    editBtn.addEventListener('click', () => setMode('edit', hl, label, panel, bar, dim));
+    app.inputEl.addEventListener('input', () => { app.inputEl!.style.height = 'auto'; app.inputEl!.style.height = Math.min(app.inputEl!.scrollHeight, 72) + 'px'; });
+    browseBtn.addEventListener('click', () => setMode('browse'));
+    editBtn.addEventListener('click', () => setMode('edit'));
+    closeBtn.addEventListener('click', () => { setMode('browse'); app.hoveredEl = null; });
+    app.sendBtnEl.addEventListener('click', sendEdit);
+    app.inputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendEdit(); } });
 
     // History toggle
     histBtn.addEventListener('click', () => {
       if (panel.classList.contains('open')) {
         app.selectedEl = null; app.selectedEls = []; clearMultiHighlights();
-        hl.style.display = 'none'; hl.classList.remove('selected');
-        label.style.display = 'none'; hidePanel(panel);
+        if (hl) { hl.style.display = 'none'; hl.classList.remove('selected'); }
+        if (label) label.style.display = 'none';
+        hidePanel(panel);
         app.hoveredEl = null;
       }
       const isOpen = histPanel.classList.toggle('open');
@@ -298,23 +350,7 @@
       }
     });
 
-    // Restore saved state
-    fetchAndRenderHistory();
-    if (saved.barPos) {
-      bar.style.right = 'auto'; bar.style.bottom = 'auto';
-      bar.style.left = saved.barPos.left; bar.style.top = saved.barPos.top;
-    }
-    if (app.mode === 'edit') {
-      setMode('edit', hl, label, panel, bar, dim, true);
-    }
-    if (saved.historyOpen) {
-      histPanel.classList.add('open');
-      histBtn.classList.add('open');
-      bar.classList.add('expanded');
-      fetchAndRenderHistory();
-    }
-
-    // Drag
+    // Drag (uses local barDragging state, listeners on bar element)
     let barDragging = false, barOff = { x: 0, y: 0 };
     barDrag.addEventListener('mousedown', (e: MouseEvent) => {
       barDragging = true; bar.classList.add('dragging');
@@ -323,33 +359,78 @@
       bar.style.left = `${r.left}px`; bar.style.top = `${r.top}px`;
       barOff = { x: e.clientX - r.left, y: e.clientY - r.top }; e.preventDefault();
     });
+    // Drag move/up need document listeners but we track via app to avoid stale refs
+    (app as any)._barDragging = () => barDragging;
+    (app as any)._barOff = () => barOff;
+    (app as any)._setBarDragging = (v: boolean) => { barDragging = v; };
+
+    // Restore saved state
+    fetchAndRenderHistory();
+    if (saved.barPos) {
+      bar.style.right = 'auto'; bar.style.bottom = 'auto';
+      bar.style.left = saved.barPos.left; bar.style.top = saved.barPos.top;
+    }
+    if (app.mode === 'edit') {
+      setMode('edit');
+    }
+    if (saved.historyOpen) {
+      histPanel.classList.add('open');
+      histBtn.classList.add('open');
+      bar.classList.add('expanded');
+      fetchAndRenderHistory();
+    }
+  }
+
+  // ---- Document-level listeners: added ONCE in start() ----
+  function setupGlobalListeners() {
+    // Mousemove — hover highlight + drag
     document.addEventListener('mousemove', (e: MouseEvent) => {
-      if (barDragging) { bar.style.left = `${Math.max(4, Math.min(window.innerWidth - bar.offsetWidth - 4, e.clientX - barOff.x))}px`; bar.style.top = `${Math.max(4, Math.min(window.innerHeight - bar.offsetHeight - 4, e.clientY - barOff.y))}px`; }
+      const bar = app.barEl;
+      const hl = app.hlEl;
+      const label = app.labelEl;
+      const barDragging = (app as any)._barDragging?.() || false;
+      const barOff = (app as any)._barOff?.() || { x: 0, y: 0 };
+
+      if (barDragging && bar) {
+        bar.style.left = `${Math.max(4, Math.min(window.innerWidth - bar.offsetWidth - 4, e.clientX - barOff.x))}px`;
+        bar.style.top = `${Math.max(4, Math.min(window.innerHeight - bar.offsetHeight - 4, e.clientY - barOff.y))}px`;
+      }
       if (app.mode !== 'edit' || barDragging) return;
       if (app.selectedEl && !e.shiftKey) return;
       const t = e.target as HTMLElement;
+      if (!hl || !label) return;
       if (isOwn(t)) { hl.style.display = 'none'; label.style.display = 'none'; return; }
       if (t !== app.hoveredEl) { app.hoveredEl = t; posHL(t, hl); posLabel(t, label); }
     }, true);
-    document.addEventListener('mouseup', () => { if (barDragging) { barDragging = false; bar.classList.remove('dragging'); save(); } });
 
-    closeBtn.addEventListener('click', () => {
-      setMode('browse', hl, label, panel, bar, dim);
-      app.hoveredEl = null;
+    // Mouseup — end drag
+    document.addEventListener('mouseup', () => {
+      const barDragging = (app as any)._barDragging?.() || false;
+      if (barDragging) {
+        (app as any)._setBarDragging?.(false);
+        app.barEl?.classList.remove('dragging');
+        save();
+      }
     });
 
-    // Click to select
+    // Click — element selection
     document.addEventListener('click', (e) => {
       if (app.mode !== 'edit') return;
       const t = e.target as HTMLElement;
       if (isOwn(t)) return;
       e.preventDefault(); e.stopPropagation();
 
+      const hl = app.hlEl;
+      const label = app.labelEl;
+      const panel = app.panelEl;
+      const input = app.inputEl;
+      if (!hl || !label || !panel || !input) return;
+
       if (e.shiftKey && app.selectedEls.length > 0) {
         const idx = app.selectedEls.indexOf(t);
         if (idx >= 0) {
           app.selectedEls.splice(idx, 1);
-          if (app.selectedEls.length === 0) { clearSelection(hl, label, panel); return; }
+          if (app.selectedEls.length === 0) { clearSelection(); return; }
           app.selectedEl = app.selectedEls[app.selectedEls.length - 1];
         } else {
           app.selectedEls.push(t);
@@ -359,14 +440,14 @@
         updateMultiHighlights();
         label.style.display = 'none';
         showPanel(panel);
-        updatePanelForSelection(panel);
+        updatePanelForSelection();
         setTimeout(() => input.focus(), 50);
       } else {
         app.selectedEl = t;
         app.selectedEls = [t];
         clearMultiHighlights();
         posHL(t, hl); hl.classList.add('selected'); label.style.display = 'none'; showPanel(panel);
-        updatePanelForSelection(panel);
+        updatePanelForSelection();
         input.value = ''; input.style.height = 'auto'; setTimeout(() => input.focus(), 50);
       }
 
@@ -379,54 +460,19 @@
       }
     }, true);
 
-    // Send edit
-    async function sendEdit() {
-      if (!app.selectedEl || !app.ws || app.ws.readyState !== WebSocket.OPEN) return;
-      const instruction = input.value.trim(); if (!instruction) return;
-      app.activeSendBtn = sendBtn;
-      sendBtn.disabled = true; sendBtn.classList.add('loading');
-
-      const elements = app.selectedEls.length > 1 ? app.selectedEls : [app.selectedEl];
-      app.lastEdit = { tagName: elements.map(e => e.tagName.toLowerCase()).join(', '), instruction };
-
-      if (elements.length === 1) {
-        const el = elements[0];
-        const sourceInfo = await extractSourceInfo(el);
-        app.ws.send(JSON.stringify({ type: 'edit-request', selector: getSelector(el), tagName: el.tagName.toLowerCase(), className: el.className || '', textContent: el.textContent?.trim().slice(0, 100) || '', instruction, sourceInfo }));
-      } else {
-        const sourceInfo = await extractSourceInfo(elements[0]);
-        const resolvedElements = await Promise.all(elements.map(async el => ({
-          selector: getSelector(el),
-          tagName: el.tagName.toLowerCase(),
-          className: el.className || '',
-          textContent: el.textContent?.trim().slice(0, 100) || '',
-          sourceInfo: await extractSourceInfo(el),
-        })));
-        app.ws.send(JSON.stringify({
-          type: 'edit-request',
-          selector: getSelector(elements[0]),
-          tagName: elements[0].tagName.toLowerCase(),
-          className: elements[0].className || '',
-          textContent: elements[0].textContent?.trim().slice(0, 100) || '',
-          instruction,
-          sourceInfo,
-          elements: resolvedElements,
-        }));
-      }
-      toast('Editing...', 'info');
-      startPolling();
-    }
-
-    sendBtn.addEventListener('click', sendEdit);
-    input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendEdit(); } });
-
+    // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
-      if ((e.metaKey || e.altKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setMode(app.mode === 'browse' ? 'edit' : 'browse', hl, label, panel, bar, dim); return; }
+      if ((e.metaKey || e.altKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setMode(app.mode === 'browse' ? 'edit' : 'browse');
+        return;
+      }
       if (e.key === 'Escape') {
-        if (histPanel.classList.contains('open')) {
+        const histPanel = document.getElementById(`${L}-history`);
+        if (histPanel?.classList.contains('open')) {
           closeHistory();
-        } else if (app.selectedEl) { clearSelection(hl, label, panel); app.hoveredEl = null; }
-        else if (app.mode === 'edit') setMode('browse', hl, label, panel, bar, dim);
+        } else if (app.selectedEl) { clearSelection(); app.hoveredEl = null; }
+        else if (app.mode === 'edit') setMode('browse');
       }
     });
   }
@@ -440,6 +486,7 @@
 
   function start() {
     init();
+    setupGlobalListeners(); // Only once — references app.* for current DOM
 
     let reinjectTimer: ReturnType<typeof setTimeout> | null = null;
     new MutationObserver(() => {
