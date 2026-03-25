@@ -1,7 +1,7 @@
 import { L } from './constants';
 import { app } from './state';
 import { toast } from './elements';
-import { listIn, confirmIn, confirmOut } from './animate';
+import { listIn, confirmIn, confirmOut, barCollapse } from './animate';
 
 export async function fetchAndRenderHistory() {
   const container = document.getElementById(`${L}-history`);
@@ -117,8 +117,9 @@ export function closeHistory() {
   const bar = document.getElementById(`${L}-bar`);
   const histBtn = bar?.querySelector(`.${L}-bhi`) as HTMLElement;
   const browseBtn = bar?.querySelector(`.${L}-bbr`) as HTMLElement;
-  if (histPanel) { histPanel.classList.remove('open'); histPanel.style.cssText = ''; }
   if (histBtn) histBtn.classList.remove('open');
-  if (bar) bar.classList.remove('expanded');
   if (browseBtn) browseBtn.classList.add('active');
+  if (histPanel && bar) {
+    barCollapse(bar, histPanel);
+  }
 }

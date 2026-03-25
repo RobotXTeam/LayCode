@@ -271,7 +271,7 @@
 
   // ---- Mode ----
   function setMode(m: 'browse' | 'edit') {
-    if (animating) return;
+    if (m === app.mode) return;
     if (m === 'edit' && app.previewingHash) {
       toast('Go back to latest to make edits', 'info');
       return;
@@ -394,27 +394,28 @@
 
     // History toggle
     histBtn.addEventListener('click', () => {
-      if (animating) return;
       const wasOpen = histPanel.classList.contains('open');
 
-      // Clear edit state
-      app.selectedEl = null; app.selectedEls = []; clearMultiHighlights();
-      if (hl) { hl.style.display = 'none'; hl.classList.remove('selected'); }
-      if (label) label.style.display = 'none';
-      app.hoveredEl = null;
-      document.body.style.cursor = '';
-      if (dim.classList.contains('active')) {
-        dimOut(dim).then(() => { dim.classList.remove('active'); dim.style.cssText = ''; });
-      }
-      app.mode = 'browse';
-      browseBtn.classList.remove('active');
-      editBtn.classList.remove('active');
-
       if (wasOpen) {
+        // Close history
         hideHistory(histPanel);
         histBtn.classList.remove('open');
         browseBtn.classList.add('active');
+        editBtn.classList.remove('active');
+        app.mode = 'browse';
       } else {
+        // Open history — clear edit state first
+        app.selectedEl = null; app.selectedEls = []; clearMultiHighlights();
+        if (hl) { hl.style.display = 'none'; hl.classList.remove('selected'); }
+        if (label) label.style.display = 'none';
+        app.hoveredEl = null;
+        document.body.style.cursor = '';
+        if (dim.classList.contains('active')) {
+          dimOut(dim).then(() => { dim.classList.remove('active'); dim.style.cssText = ''; });
+        }
+        app.mode = 'browse';
+        browseBtn.classList.remove('active');
+        editBtn.classList.remove('active');
         showHistory(histPanel, bar);
         fetchAndRenderHistory();
       }

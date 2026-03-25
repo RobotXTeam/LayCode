@@ -3,40 +3,55 @@ import { animate, stagger } from 'motion';
 // ---- Spring presets ----
 const spring = { type: 'spring' as const, bounce: 0.12, duration: 0.5 };
 const springSnappy = { type: 'spring' as const, bounce: 0.08, duration: 0.35 };
-const springGentle = { type: 'spring' as const, bounce: 0.15, duration: 0.55 };
+const springGentle = { type: 'spring' as const, bounce: 0.1, duration: 0.5 };
+const springSmooth = { type: 'spring' as const, stiffness: 300, damping: 30 };
 
 // ---- Active bar animation tracking ----
 let activeBarAnim: ReturnType<typeof animate> | null = null;
+let activeContentAnim: ReturnType<typeof animate> | null = null;
 
 function cancelBarAnim(bar: HTMLElement) {
   if (activeBarAnim) {
     activeBarAnim.cancel();
     activeBarAnim = null;
   }
-  // Force clear any residual inline styles from motion
+  if (activeContentAnim) {
+    activeContentAnim.cancel();
+    activeContentAnim = null;
+  }
   bar.style.width = '';
+  bar.style.height = '';
   bar.style.borderRadius = '';
 }
 
-// ---- Bar expand / collapse ----
+// ---- Bar expand ----
 export function barExpand(bar: HTMLElement, panel: HTMLElement) {
   cancelBarAnim(bar);
 
   const pos = { left: bar.style.left, top: bar.style.top, right: bar.style.right, bottom: bar.style.bottom };
+
+  // Measure collapsed
   const collapsedRect = bar.getBoundingClientRect();
 
+  // Show panel to measure expanded
   bar.classList.add('expanded');
   panel.classList.add('open');
   const expandedRect = bar.getBoundingClientRect();
 
+  // Hide content initially — will fade in during expansion
+  panel.style.opacity = '0';
+
+  // Animate bar: width + height + border-radius together
   activeBarAnim = animate(bar, {
     width: [`${collapsedRect.width}px`, `${expandedRect.width}px`],
+    height: [`${collapsedRect.height}px`, `${expandedRect.height}px`],
     borderRadius: ['50px', '14px'],
-  }, springGentle);
+  }, springSmooth);
 
   activeBarAnim.then(() => {
     activeBarAnim = null;
     bar.style.width = '';
+    bar.style.height = '';
     bar.style.borderRadius = '';
     if (pos.left && pos.top) {
       bar.style.right = 'auto'; bar.style.bottom = 'auto';
@@ -44,33 +59,42 @@ export function barExpand(bar: HTMLElement, panel: HTMLElement) {
     }
   });
 
-  // Content fades in slightly delayed
-  animate(panel, {
+  // Content fades in once bar is ~40% expanded
+  activeContentAnim = animate(panel, {
     opacity: [0, 1],
-    y: [10, 0],
-  }, { ...spring, delay: 0.1 });
+    y: [6, 0],
+  }, { duration: 0.3, delay: 0.12 });
+
+  activeContentAnim.then(() => {
+    activeContentAnim = null;
+    panel.style.opacity = '';
+    panel.style.transform = '';
+  });
 }
 
+// ---- Bar collapse ----
 export function barCollapse(bar: HTMLElement, panel: HTMLElement): Promise<void> {
   cancelBarAnim(bar);
 
   const expandedRect = bar.getBoundingClientRect();
+  const pos = { left: bar.style.left, top: bar.style.top, right: bar.style.right, bottom: bar.style.bottom };
 
+  // Phase 1: Fade content out quickly
   return animate(panel, {
     opacity: [1, 0],
-    y: [0, 6],
-  }, { duration: 0.15 }).then(() => {
+  }, { duration: 0.12 }).then(() => {
     panel.classList.remove('open');
     panel.style.cssText = '';
     bar.classList.remove('expanded');
 
     const collapsedRect = bar.getBoundingClientRect();
-    const pos = { left: bar.style.left, top: bar.style.top, right: bar.style.right, bottom: bar.style.bottom };
 
+    // Phase 2: Shrink bar back to pill
     activeBarAnim = animate(bar, {
       width: [`${expandedRect.width}px`, `${collapsedRect.width}px`],
+      height: [`${expandedRect.height}px`, `${collapsedRect.height}px`],
       borderRadius: ['14px', '50px'],
-    }, springSnappy);
+    }, springSmooth);
 
     return activeBarAnim.then(() => {
       activeBarAnim = null;
@@ -88,13 +112,13 @@ export function barIn(el: HTMLElement) {
   return animate(el, { opacity: [0, 1], y: [20, 0], scale: [0.92, 1] }, springGentle);
 }
 
-// ---- Panel content swap (when switching between edit ↔ history) ----
+// ---- Panel content swap (bar stays expanded) ----
 export function contentSwap(bar: HTMLElement, outEl: HTMLElement, inEl: HTMLElement) {
   cancelBarAnim(bar);
   outEl.classList.remove('open');
   outEl.style.cssText = '';
   inEl.classList.add('open');
-  return animate(inEl, { opacity: [0, 1], y: [6, 0] }, { ...springSnappy, delay: 0.05 });
+  return animate(inEl, { opacity: [0, 1], y: [4, 0] }, { duration: 0.25, delay: 0.03 });
 }
 
 // ---- Toast enter / exit ----
