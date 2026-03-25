@@ -19,7 +19,8 @@
   function saveState() {
     try {
       const bar = document.getElementById(`${L}-bar`);
-      const state: any = { mode, editCount, lastEditTimestamp };
+      const histOpen = document.getElementById(`${L}-history`)?.classList.contains('open') || false;
+      const state: any = { mode, editCount, lastEditTimestamp, historyOpen: histOpen };
       if (bar) {
         const s = bar.style;
         if (s.left && s.top) {
@@ -674,7 +675,8 @@
             sessionStorage.setItem('__layrr_preview', msg.hash);
             toast(`Previewing: ${msg.message || msg.hash.slice(0, 7)}`, 'info');
             fetchAndRenderHistory();
-            setTimeout(() => location.reload(), 1000);
+            saveState();
+            setTimeout(() => location.reload(), 800);
           } else { toast('Preview failed', 'error'); }
         }
         else if (msg.type === 'version-restore-result') {
@@ -683,7 +685,8 @@
             sessionStorage.removeItem('__layrr_preview');
             toast('Back to latest', 'success');
             fetchAndRenderHistory();
-            setTimeout(() => location.reload(), 1000);
+            saveState();
+            setTimeout(() => location.reload(), 800);
           } else { toast('Restore failed', 'error'); }
         }
         else if (msg.type === 'version-revert-result') {
@@ -692,7 +695,8 @@
             sessionStorage.removeItem('__layrr_preview');
             toast('Permanently reverted', 'success');
             fetchAndRenderHistory();
-            setTimeout(() => location.reload(), 1000);
+            saveState();
+            setTimeout(() => location.reload(), 800);
           } else { toast('Revert failed', 'error'); }
         }
       } catch {}
@@ -912,6 +916,12 @@
     }
     if (mode === 'edit') {
       setMode('edit', hl, label, panel, bar, dim, true);
+    }
+    if (saved.historyOpen) {
+      histPanel.classList.add('open');
+      histBtn.classList.add('open');
+      bar.classList.add('expanded');
+      fetchAndRenderHistory();
     }
 
     let barDragging = false, barOff = { x: 0, y: 0 };
