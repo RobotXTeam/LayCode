@@ -35,14 +35,10 @@ export function injectStyles() {
   const s = document.createElement('style');
   s.id = `${L}-styles`;
   s.textContent = `
-    /* ---- Animations ---- */
-    @keyframes ${L}-in{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
-    @keyframes ${L}-out{from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(40px)}}
+    /* ---- Animations (CSS fallbacks for class-toggle states; motion.js handles enter/exit) ---- */
     @keyframes ${L}-pulse{0%,100%{opacity:1}50%{opacity:.35}}
     @keyframes ${L}-spin{to{transform:rotate(360deg)}}
     @keyframes ${L}-glow{0%,100%{box-shadow:0 0 0 0 ${C.hlGlow}}50%{box-shadow:0 0 0 5px rgba(59,130,246,0)}}
-    @keyframes ${L}-up{from{opacity:0;transform:translateY(16px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}
-    @keyframes ${L}-toast-in{from{opacity:0;transform:translateX(60px)}to{opacity:1;transform:translateX(0)}}
 
     /* ---- Reset ---- */
     .${L}-root *{box-sizing:border-box;margin:0;padding:0}
@@ -77,7 +73,6 @@ export function injectStyles() {
       display:none;width:320px;max-height:280px;overflow-y:auto;
       border-top:1px solid ${C.panelBorder};
       border-radius:${radius.xl} ${radius.xl} 0 0;
-      animation:${L}-in .2s ${ease};
     }
     .${L}-flyout.open{display:block}
 
@@ -160,10 +155,9 @@ export function injectStyles() {
     .${L}-toast{
       padding:7px 12px;border-radius:${radius.lg};font-size:${size.base};font-weight:500;
       font-family:${mono};
-      box-shadow:${shadow.md};animation:${L}-toast-in .25s ${ease};
+      box-shadow:${shadow.md};
       backdrop-filter:blur(10px);display:flex;align-items:center;gap:6px;max-width:240px;
     }
-    .${L}-toast.out{animation:${L}-out .2s ease forwards}
     .${L}-toast.success{background:rgba(6,78,59,.9);color:${C.success};border:1px solid rgba(52,211,153,.1)}
     .${L}-toast.error{background:rgba(127,29,29,.9);color:${C.error};border:1px solid rgba(251,113,133,.1)}
     .${L}-toast.info{background:${C.panel};color:${C.textMuted};border:1px solid ${C.border}}
@@ -177,10 +171,10 @@ export function injectStyles() {
       backdrop-filter:blur(16px) saturate(1.2);-webkit-backdrop-filter:blur(16px) saturate(1.2);
       border:1px solid ${C.panelBorder};border-radius:${radius.xl};
       box-shadow:${shadow.lg};
-      user-select:none;animation:${L}-up .3s ${ease};
-      transition:box-shadow .12s,border-color .12s,border-radius .15s;
+      user-select:none;
+      transition:box-shadow .12s,border-color .12s;
     }
-    #${L}-bar:not(.expanded){border-radius:50px}
+    #${L}-bar:not(.expanded){border-radius:50px;overflow:hidden}
     #${L}-bar.expanded{overflow:hidden}
     #${L}-bar:hover{border-color:rgba(148,163,184,.16)}
     #${L}-bar.dragging{box-shadow:0 8px 32px rgba(0,0,0,.45),0 0 0 1px rgba(161,161,170,.15);cursor:grabbing}
@@ -226,7 +220,6 @@ export function injectStyles() {
       display:none;width:320px;max-height:280px;overflow-y:auto;
       border-top:1px solid ${C.panelBorder};
       border-radius:${radius.xl} ${radius.xl} 0 0;
-      animation:${L}-in .2s ${ease};
     }
     .${L}-panel.open{display:block}
     .${L}-ph{display:flex;align-items:center;justify-content:space-between;padding:8px 10px 0;user-select:none}
@@ -293,7 +286,6 @@ export function injectStyles() {
       display:none;width:320px;max-height:280px;overflow-y:auto;
       border-top:1px solid ${C.panelBorder};
       border-radius:${radius.xl} ${radius.xl} 0 0;
-      animation:${L}-in .2s ${ease};
     }
     #${L}-history.open{display:block}
     .${L}-hh{

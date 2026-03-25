@@ -1,4 +1,5 @@
 import { L } from './constants';
+import { toastIn, toastOut, barIn } from './animate';
 
 export function createElements() {
   const root = document.createElement('div');
@@ -55,6 +56,7 @@ export function createElements() {
     </div>
   `;
   root.appendChild(bar);
+  barIn(bar);
 
   const panel = bar.querySelector(`.${L}-panel`) as HTMLElement;
 
@@ -72,5 +74,6 @@ export function toast(msg: string, type: 'success' | 'error' | 'info' = 'info') 
   const ic = type === 'success' ? 'icon-circle-check' : type === 'error' ? 'icon-circle-x' : 'icon-info';
   el.innerHTML = `<i class="${ic}"></i><span>${msg}</span>`;
   c.appendChild(el);
-  setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 200); }, 3000);
+  toastIn(el);
+  setTimeout(() => { toastOut(el).then(() => el.remove()); }, 3000);
 }

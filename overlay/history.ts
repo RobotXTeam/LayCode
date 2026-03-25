@@ -1,6 +1,7 @@
 import { L } from './constants';
 import { app } from './state';
 import { toast } from './elements';
+import { listIn, confirmIn, confirmOut } from './animate';
 
 export async function fetchAndRenderHistory() {
   const container = document.getElementById(`${L}-history`);
@@ -52,6 +53,7 @@ export async function fetchAndRenderHistory() {
       `</div>`;
     }).join('') + '</div>';
     container.innerHTML = html;
+    listIn(`.${L}-he`, container);
 
     // Wire up events
     container.querySelector(`.${L}-hh-prev`)?.addEventListener('click', () => { app.historyPage--; fetchAndRenderHistory(); });
@@ -98,12 +100,15 @@ function showRevertConfirm(container: HTMLElement, hash: string) {
   `;
   container.style.position = 'relative';
   container.appendChild(overlay);
-  overlay.querySelector(`.${L}-confirm-cancel`)?.addEventListener('click', () => overlay.remove());
+  confirmIn(overlay);
+  overlay.querySelector(`.${L}-confirm-cancel`)?.addEventListener('click', () => {
+    confirmOut(overlay).then(() => overlay.remove());
+  });
   overlay.querySelector(`.${L}-confirm-yes`)?.addEventListener('click', () => {
     if (app.ws?.readyState === WebSocket.OPEN) {
       app.ws.send(JSON.stringify({ type: 'version-revert', hash }));
     }
-    overlay.remove();
+    confirmOut(overlay).then(() => overlay.remove());
   });
 }
 

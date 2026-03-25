@@ -10,6 +10,7 @@
   const { app, loadState, initState, save } = await import('./state');
   const { initSourceMapping, extractSourceInfo, getTag, getBreadcrumb, getSelector, posHL, posLabel } = await import('./source');
   const { fetchAndRenderHistory, closeHistory } = await import('./history');
+  const { panelIn, panelOut, dimIn, dimOut } = await import('./animate');
 
   await initSourceMapping();
 
@@ -24,11 +25,13 @@
     bar?.querySelector(`.${L}-bhi`)?.classList.remove('open');
     panel.classList.add('open');
     if (bar) bar.classList.add('expanded');
+    panelIn(panel);
   }
 
   function hidePanel(panel: HTMLElement) {
     const bar = document.getElementById(`${L}-bar`);
     panel.classList.remove('open');
+    panel.style.cssText = '';
     const histOpen = document.getElementById(`${L}-history`)?.classList.contains('open');
     if (bar && !histOpen) bar.classList.remove('expanded');
   }

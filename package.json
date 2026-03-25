@@ -26,6 +26,7 @@
     "element-source": "^0.0.5",
     "geist": "^1.7.0",
     "lucide-static": "^0.577.0",
+    "motion": "^12.38.0",
     "open": "^10.0.0",
     "ws": "^8.0.0"
   },
