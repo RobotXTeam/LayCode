@@ -1,7 +1,9 @@
 import { L } from './constants';
 import { app } from './state';
 import { toast } from './elements';
-import { listIn, confirmIn, confirmOut, barCollapse, btnActivate, btnDeactivate } from './animate';
+import { listIn, animateHeight, confirmIn, confirmOut, barCollapse, btnActivate, btnDeactivate } from './animate';
+
+let lastPage = -1;
 
 export async function fetchAndRenderHistory() {
   const container = document.getElementById(`${L}-history`);
@@ -52,8 +54,15 @@ export async function fetchAndRenderHistory() {
         `<div class="${L}-he-actions">${actions}</div>` +
       `</div>`;
     }).join('') + '</div>';
-    container.innerHTML = html;
-    listIn(`.${L}-he`, container);
+    const bar = document.getElementById(`__layrr-bar`);
+    const direction = app.historyPage > lastPage ? 'down' : 'up';
+    lastPage = app.historyPage;
+    if (bar && bar.classList.contains('expanded')) {
+      animateHeight(bar, () => { container.innerHTML = html; });
+    } else {
+      container.innerHTML = html;
+    }
+    listIn(`.${L}-he`, container, direction);
 
     // Wire up events
     container.querySelector(`.${L}-hh-prev`)?.addEventListener('click', () => { app.historyPage--; fetchAndRenderHistory(); });

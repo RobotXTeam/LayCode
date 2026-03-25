@@ -50,8 +50,8 @@ export function createElements() {
     <div class="${L}-toolbar">
       <div class="${L}-bd"><i class="icon-grip-vertical"></i></div>
       <div class="${L}-bs"></div>
-      <button class="${L}-bb ${L}-bbr active" data-tip="Browse"><i class="icon-mouse-pointer"></i></button>
-      <button class="${L}-bb ${L}-bbe" data-tip="Edit"><i class="icon-pencil"></i></button>
+      <button class="${L}-bb ${L}-bbr active" data-tip="Browse"><i class="icon-mouse-pointer-2"></i></button>
+      <button class="${L}-bb ${L}-bbe" data-tip="Edit"><i class="icon-square-dashed-mouse-pointer"></i></button>
       <button class="${L}-bb ${L}-bhi" data-tip="History"><i class="icon-clock"></i></button>
     </div>
   `;

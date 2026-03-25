@@ -10,7 +10,7 @@
   const { app, loadState, initState, save } = await import('./state');
   const { initSourceMapping, extractSourceInfo, getTag, getBreadcrumb, getSelector, posHL, posLabel } = await import('./source');
   const { fetchAndRenderHistory, closeHistory } = await import('./history');
-  const { barExpand, barCollapse, contentSwap, contentFadeIn, dimIn, dimOut, btnActivate, btnDeactivate } = await import('./animate');
+  const { barExpand, barCollapse, contentSwap, contentFadeIn, multiSelectIn, animateHeight, dimIn, dimOut, btnActivate, btnDeactivate } = await import('./animate');
 
   // Toolbar button colors (match CSS)
   const BTN = {
@@ -143,10 +143,15 @@
     const hn = panel.querySelector(`.${L}-hn`) as HTMLElement;
     const elInfo = panel.querySelector(`.${L}-ei`) as HTMLElement;
 
+    const bar = app.barEl;
+
     if (!app.selectedEl && app.selectedEls.length === 0) {
-      elInfo.innerHTML = `<div class="${L}-eh">Click to select an element or <kbd>Shift+click</kbd> to select multiple</div>`;
-      if (ia) ia.style.display = 'none';
-      if (hn) hn.style.display = 'none';
+      const update = () => {
+        elInfo.innerHTML = `<div class="${L}-eh">Click to select an element or <kbd>Shift+click</kbd> to select multiple</div>`;
+        if (ia) ia.style.display = 'none';
+        if (hn) hn.style.display = 'none';
+      };
+      if (bar?.classList.contains('expanded')) { animateHeight(bar, update); } else { update(); }
       contentFadeIn(elInfo);
       return;
     }
@@ -157,11 +162,14 @@
     if (app.selectedEls.length <= 1) {
       const el = app.selectedEls[0] || app.selectedEl;
       if (!el) return;
-      elInfo.innerHTML = `
-        <div class="${L}-et">${getTag(el)}</div>
-        <div class="${L}-ex">${el.textContent?.trim().slice(0, 50) || '(empty)'}</div>
-        <div class="${L}-ep">${getBreadcrumb(el)}</div>
-      `;
+      const update = () => {
+        elInfo.innerHTML = `
+          <div class="${L}-et">${getTag(el)}</div>
+          <div class="${L}-ex">${el.textContent?.trim().slice(0, 50) || '(empty)'}</div>
+          <div class="${L}-ep">${getBreadcrumb(el)}</div>
+        `;
+      };
+      if (bar?.classList.contains('expanded')) { animateHeight(bar, update); } else { update(); }
       contentFadeIn(elInfo);
     } else {
       let html = `<div class="${L}-et">Selected<span class="${L}-sel-count">${app.selectedEls.length}</span></div>`;
@@ -171,8 +179,9 @@
         html += `<div class="${L}-ei-item"><button class="${L}-ei-rm" data-idx="${i}"><i class="icon-x"></i></button><span>${tag}</span></div>`;
       });
       html += `</div>`;
-      elInfo.innerHTML = html;
-      contentFadeIn(elInfo);
+      const update = () => { elInfo.innerHTML = html; };
+      if (bar?.classList.contains('expanded')) { animateHeight(bar, update); } else { update(); }
+      multiSelectIn(`.${L}-ei-item`, elInfo);
       elInfo.querySelectorAll(`.${L}-ei-rm`).forEach(btn => {
         btn.addEventListener('click', (e) => {
           e.stopPropagation();

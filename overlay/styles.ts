@@ -174,7 +174,7 @@ export function injectStyles() {
       user-select:none;
       transition:box-shadow .12s,border-color .12s;
     }
-    #${L}-bar:not(.expanded){border-radius:50px;overflow:hidden}
+    #${L}-bar:not(.expanded){border-radius:50px}
     #${L}-bar.expanded{overflow:hidden;border-radius:14px}
     #${L}-bar:hover{border-color:rgba(148,163,184,.16)}
     #${L}-bar.dragging{box-shadow:0 8px 32px rgba(0,0,0,.45),0 0 0 1px rgba(161,161,170,.15);cursor:grabbing}

@@ -192,6 +192,21 @@ export function btnDeactivate(el: HTMLElement) {
   return animate(el, { backgroundColor: 'transparent', color: '#71717a' }, { duration: 0.2 });
 }
 
+// ---- Smooth height transition (for content changes within an expanded bar) ----
+export function animateHeight(bar: HTMLElement, fn: () => void) {
+  const startHeight = bar.getBoundingClientRect().height;
+  fn();
+  bar.offsetHeight; // force layout
+  const endHeight = bar.getBoundingClientRect().height;
+  if (Math.abs(startHeight - endHeight) > 2) {
+    animate(bar, {
+      height: [`${startHeight}px`, `${endHeight}px`],
+    }, springSmooth).then(() => {
+      bar.style.height = '';
+    });
+  }
+}
+
 // ---- Inner content transition (within a panel) ----
 export function contentFadeIn(el: HTMLElement) {
   return animate(el, { opacity: [0, 1], y: [4, 0] }, { duration: 0.2 });
@@ -216,13 +231,25 @@ export function dimOut(el: HTMLElement) {
 }
 
 // ---- Staggered list items ----
-export function listIn(selector: string, parent: HTMLElement) {
+export function listIn(selector: string, parent: HTMLElement, direction: 'down' | 'up' = 'down') {
+  const items = parent.querySelectorAll(selector);
+  if (items.length === 0) return;
+  const x = direction === 'down' ? [8, 0] : [-8, 0];
+  return animate(
+    items as NodeListOf<HTMLElement>,
+    { opacity: [0, 1], x },
+    { delay: stagger(0.04), ...springSnappy }
+  );
+}
+
+// ---- Multi-select item stagger ----
+export function multiSelectIn(selector: string, parent: HTMLElement) {
   const items = parent.querySelectorAll(selector);
   if (items.length === 0) return;
   return animate(
     items as NodeListOf<HTMLElement>,
-    { opacity: [0, 1], y: [8, 0] },
-    { delay: stagger(0.04), ...springSnappy }
+    { opacity: [0, 1], x: [6, 0] },
+    { delay: stagger(0.03), duration: 0.2 }
   );
 }
 
