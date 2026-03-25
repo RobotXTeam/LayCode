@@ -187,7 +187,7 @@ export function injectStyles() {
     /* ---- Toolbar buttons ---- */
     .${L}-bb{
       width:30px;height:30px;border:none;border-radius:${radius.full};padding:0;
-      font-size:${size.xl};cursor:pointer;
+      font-size:${size.xl};cursor:pointer;outline:none;
       transition:${transition};display:flex;align-items:center;justify-content:center;
       position:relative;gap:0;
     }

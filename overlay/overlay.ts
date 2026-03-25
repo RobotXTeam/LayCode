@@ -10,7 +10,34 @@
   const { app, loadState, initState, save } = await import('./state');
   const { initSourceMapping, extractSourceInfo, getTag, getBreadcrumb, getSelector, posHL, posLabel } = await import('./source');
   const { fetchAndRenderHistory, closeHistory } = await import('./history');
-  const { barExpand, barCollapse, contentSwap, contentFadeIn, dimIn, dimOut } = await import('./animate');
+  const { barExpand, barCollapse, contentSwap, contentFadeIn, dimIn, dimOut, btnActivate, btnDeactivate } = await import('./animate');
+
+  // Toolbar button colors (match CSS)
+  const BTN = {
+    browseBg: 'rgba(228,228,231,.05)', browseColor: '#fafafa',
+    editBg: 'rgba(250,250,250,.12)', editColor: '#fafafa',
+    histBg: 'rgba(228,228,231,.05)', histColor: '#fafafa',
+  };
+
+  function activateBrowse(br: HTMLElement, ed: HTMLElement) {
+    br.classList.add('active'); btnActivate(br, BTN.browseBg, BTN.browseColor);
+    ed.classList.remove('active'); btnDeactivate(ed);
+  }
+
+  function activateEdit(br: HTMLElement, ed: HTMLElement) {
+    br.classList.remove('active'); btnDeactivate(br);
+    ed.classList.add('active'); btnActivate(ed, BTN.editBg, BTN.editColor);
+  }
+
+  function activateHistory(br: HTMLElement, ed: HTMLElement, hi: HTMLElement) {
+    br.classList.remove('active'); btnDeactivate(br);
+    ed.classList.remove('active'); btnDeactivate(ed);
+    hi.classList.add('open'); btnActivate(hi, BTN.histBg, BTN.histColor);
+  }
+
+  function deactivateHistory(hi: HTMLElement) {
+    hi.classList.remove('open'); btnDeactivate(hi);
+  }
 
   await initSourceMapping();
 
@@ -18,8 +45,6 @@
   initState(saved);
 
   // ---- Panel helpers ----
-  let animating = false;
-
   function showPanel(panel: HTMLElement) {
     const bar = document.getElementById(`${L}-bar`);
     if (!bar) return;
@@ -34,9 +59,7 @@
     }
 
     // Expand bar with animation
-    animating = true;
     barExpand(bar, panel);
-    setTimeout(() => { animating = false; }, 600);
   }
 
   function showHistory(histPanel: HTMLElement, bar: HTMLElement) {
@@ -50,9 +73,7 @@
     }
 
     // Expand bar with animation
-    animating = true;
     barExpand(bar, histPanel);
-    setTimeout(() => { animating = false; }, 600);
   }
 
   function hidePanel(panel: HTMLElement) {
@@ -66,8 +87,7 @@
       return;
     }
     // Collapse bar with animation
-    animating = true;
-    barCollapse(bar, panel).then(() => { animating = false; });
+    barCollapse(bar, panel);
   }
 
   function hideHistory(histPanel: HTMLElement) {
@@ -79,8 +99,7 @@
       histPanel.style.cssText = '';
       return;
     }
-    animating = true;
-    barCollapse(bar, histPanel).then(() => { animating = false; });
+    barCollapse(bar, histPanel);
   }
 
   // ---- Multi-select helpers ----
@@ -286,27 +305,30 @@
     const ed = bar.querySelector(`.${L}-bbe`) as HTMLElement;
     // Close history if open
     const hp = document.getElementById(`${L}-history`);
+    const hi = bar.querySelector(`.${L}-bhi`) as HTMLElement;
     if (hp?.classList.contains('open')) {
       if (m === 'browse') {
-        // Collapsing — full barCollapse is fine
         hideHistory(hp);
       }
-      // For 'edit', don't call hideHistory (which triggers barCollapse).
-      // showPanel will detect history is open and use contentSwap instead.
-      bar.querySelector(`.${L}-bhi`)?.classList.remove('open');
+      deactivateHistory(hi);
     }
 
     if (m === 'browse') {
-      br.classList.add('active'); ed.classList.remove('active');
+      activateBrowse(br, ed);
       document.body.style.cursor = '';
-      dimOut(dim).then(() => dim.classList.remove('active'));
+      if (dim.classList.contains('active')) {
+        dimOut(dim).then(() => { dim.classList.remove('active'); dim.style.cssText = ''; });
+      }
       app.selectedEl = null; app.selectedEls = []; app.hoveredEl = null;
       clearMultiHighlights();
       if (app.hlEl) { app.hlEl.style.display = 'none'; app.hlEl.classList.remove('selected'); }
       if (app.labelEl) app.labelEl.style.display = 'none';
-      hidePanel(panel);
+      // Only collapse edit panel if history isn't handling the collapse
+      if (!hp?.classList.contains('open')) {
+        hidePanel(panel);
+      }
     } else {
-      br.classList.remove('active'); ed.classList.add('active');
+      activateEdit(br, ed);
       document.body.style.cursor = 'crosshair';
       dim.classList.add('active'); dim.style.cssText = ''; dimIn(dim);
       app.selectedEl = null; app.selectedEls = []; app.hoveredEl = null;
@@ -316,7 +338,6 @@
       updatePanelForSelection();
       showPanel(panel);
     }
-    if (!panel.classList.contains('open')) bar.classList.remove('expanded');
     save();
   }
 
@@ -400,9 +421,8 @@
       if (wasOpen) {
         // Close history
         hideHistory(histPanel);
-        histBtn.classList.remove('open');
-        browseBtn.classList.add('active');
-        editBtn.classList.remove('active');
+        deactivateHistory(histBtn);
+        activateBrowse(browseBtn, editBtn);
         app.mode = 'browse';
       } else {
         // Open history — clear edit state first
@@ -415,8 +435,7 @@
           dimOut(dim).then(() => { dim.classList.remove('active'); dim.style.cssText = ''; });
         }
         app.mode = 'browse';
-        browseBtn.classList.remove('active');
-        editBtn.classList.remove('active');
+        activateHistory(browseBtn, editBtn, histBtn);
         showHistory(histPanel, bar);
         fetchAndRenderHistory();
       }
@@ -442,16 +461,18 @@
       bar.style.right = 'auto'; bar.style.bottom = 'auto';
       bar.style.left = saved.barPos.left; bar.style.top = saved.barPos.top;
     }
-    if (app.mode === 'edit') {
-      setMode('edit');
-    }
     if (saved.historyOpen) {
+      // History takes priority over edit mode
+      app.mode = 'browse';
       histPanel.classList.add('open');
       histBtn.classList.add('open');
       bar.classList.add('expanded');
       browseBtn.classList.remove('active');
       editBtn.classList.remove('active');
       fetchAndRenderHistory();
+    } else if (app.mode === 'edit') {
+      app.mode = 'browse';   // Reset so setMode guard doesn't early-return
+      setMode('edit');
     }
   }
 
@@ -542,6 +563,10 @@
         return;
       }
       if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        // Move focus to body to prevent browser from focusing toolbar buttons
+        document.body.focus();
         const histPanel = document.getElementById(`${L}-history`);
         if (histPanel?.classList.contains('open')) {
           closeHistory();

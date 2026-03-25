@@ -12,12 +12,11 @@ let activeContentAnim: ReturnType<typeof animate> | null = null;
 
 function cancelBarAnim(bar: HTMLElement) {
   if (activeBarAnim) {
-    // Complete the animation instantly instead of cancelling to initial state
-    activeBarAnim.finish();
+    activeBarAnim.stop();
     activeBarAnim = null;
   }
   if (activeContentAnim) {
-    activeContentAnim.finish();
+    activeContentAnim.stop();
     activeContentAnim = null;
   }
   bar.style.width = '';
@@ -31,46 +30,72 @@ export function barExpand(bar: HTMLElement, panel: HTMLElement) {
 
   const pos = { left: bar.style.left, top: bar.style.top, right: bar.style.right, bottom: bar.style.bottom };
 
+  // Force layout so measurements are accurate after hard refresh
+  bar.offsetHeight;
+
   // Measure collapsed
   const collapsedRect = bar.getBoundingClientRect();
 
   // Show panel to measure expanded
   bar.classList.add('expanded');
   panel.classList.add('open');
+
+  // Force layout again for expanded measurement
+  bar.offsetHeight;
   const expandedRect = bar.getBoundingClientRect();
+
+  // If measurements are invalid (zero or same), skip animation and just show
+  if (collapsedRect.width < 1 || expandedRect.width < 1 || Math.abs(collapsedRect.width - expandedRect.width) < 1) {
+    return;
+  }
 
   // Hide content initially — will fade in during expansion
   panel.style.opacity = '0';
 
   // Animate bar: width + height + border-radius together
-  activeBarAnim = animate(bar, {
-    width: [`${collapsedRect.width}px`, `${expandedRect.width}px`],
-    height: [`${collapsedRect.height}px`, `${expandedRect.height}px`],
-    borderRadius: ['50px', '14px'],
-  }, springSmooth);
+  try {
+    activeBarAnim = animate(bar, {
+      width: [`${collapsedRect.width}px`, `${expandedRect.width}px`],
+      height: [`${collapsedRect.height}px`, `${expandedRect.height}px`],
+      borderRadius: ['50px', '14px'],
+    }, springSmooth);
 
-  activeBarAnim.then(() => {
-    activeBarAnim = null;
+    activeBarAnim.then(() => {
+      activeBarAnim = null;
+      bar.style.width = '';
+      bar.style.height = '';
+      bar.style.borderRadius = '';
+      if (pos.left && pos.top) {
+        bar.style.right = 'auto'; bar.style.bottom = 'auto';
+        bar.style.left = pos.left; bar.style.top = pos.top;
+      }
+    });
+
+    // Content fades in once bar is ~40% expanded
+    activeContentAnim = animate(panel, {
+      opacity: [0, 1],
+      y: [6, 0],
+    }, { duration: 0.3, delay: 0.12 });
+
+    activeContentAnim.then(() => {
+      activeContentAnim = null;
+      panel.style.opacity = '';
+      panel.style.transform = '';
+    });
+  } catch {
+    // If animation fails, ensure panel is visible
+    panel.style.opacity = '';
     bar.style.width = '';
     bar.style.height = '';
     bar.style.borderRadius = '';
-    if (pos.left && pos.top) {
-      bar.style.right = 'auto'; bar.style.bottom = 'auto';
-      bar.style.left = pos.left; bar.style.top = pos.top;
+  }
+
+  // Safety: ensure panel becomes visible even if animation doesn't fire
+  setTimeout(() => {
+    if (panel.style.opacity === '0') {
+      panel.style.opacity = '';
     }
-  });
-
-  // Content fades in once bar is ~40% expanded
-  activeContentAnim = animate(panel, {
-    opacity: [0, 1],
-    y: [6, 0],
-  }, { duration: 0.3, delay: 0.12 });
-
-  activeContentAnim.then(() => {
-    activeContentAnim = null;
-    panel.style.opacity = '';
-    panel.style.transform = '';
-  });
+  }, 600);
 }
 
 // ---- Bar collapse ----
@@ -114,18 +139,29 @@ export function barIn(el: HTMLElement) {
 }
 
 // ---- Panel content swap (bar stays expanded, animate height + crossfade) ----
+let activeFadeOut: ReturnType<typeof animate> | null = null;
+let activeFadeIn: ReturnType<typeof animate> | null = null;
+
+function cancelCrossfade() {
+  if (activeFadeOut) { activeFadeOut.stop(); activeFadeOut = null; }
+  if (activeFadeIn) { activeFadeIn.stop(); activeFadeIn = null; }
+}
+
 export function contentSwap(bar: HTMLElement, outEl: HTMLElement, inEl: HTMLElement) {
   cancelBarAnim(bar);
+  cancelCrossfade();
 
   // Measure current bar height (with old panel)
   const startHeight = bar.getBoundingClientRect().height;
 
+  // Remove old panel synchronously (prevents stale .open during save)
+  outEl.classList.remove('open');
+  outEl.style.cssText = '';
+
   // Show incoming panel (hidden) to measure target height
   inEl.classList.add('open');
   inEl.style.opacity = '0';
-  outEl.style.display = 'none'; // temporarily hide old panel for measurement
   const endHeight = bar.getBoundingClientRect().height;
-  outEl.style.display = ''; // restore
 
   // Animate bar height between panel sizes
   if (Math.abs(startHeight - endHeight) > 2) {
@@ -138,16 +174,22 @@ export function contentSwap(bar: HTMLElement, outEl: HTMLElement, inEl: HTMLElem
     });
   }
 
-  // Crossfade: old out, new in simultaneously
-  animate(outEl, { opacity: [1, 0] }, { duration: 0.15 }).then(() => {
-    outEl.classList.remove('open');
-    outEl.style.cssText = '';
-  });
-
-  return animate(inEl, { opacity: [0, 1], y: [3, 0] }, { duration: 0.25, delay: 0.06 }).then(() => {
+  // Fade in new panel
+  activeFadeIn = animate(inEl, { opacity: [0, 1], y: [3, 0] }, { duration: 0.25 });
+  activeFadeIn.then(() => {
+    activeFadeIn = null;
     inEl.style.opacity = '';
     inEl.style.transform = '';
   });
+}
+
+// ---- Toolbar button highlight transfer ----
+export function btnActivate(el: HTMLElement, bg: string, color: string) {
+  return animate(el, { backgroundColor: bg, color }, { duration: 0.25 });
+}
+
+export function btnDeactivate(el: HTMLElement) {
+  return animate(el, { backgroundColor: 'transparent', color: '#71717a' }, { duration: 0.2 });
 }
 
 // ---- Inner content transition (within a panel) ----
