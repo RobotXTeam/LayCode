@@ -38,7 +38,7 @@ export async function createMachine(opts: {
   region?: string;
 }): Promise<Machine> {
   const config: MachineConfig = {
-    image: `registry.fly.io/${FLY_APP_NAME}:latest`,
+    image: process.env.FLY_CONTAINER_IMAGE || `registry.fly.io/${FLY_APP_NAME}:latest`,
     env: {
       GITHUB_REPO: opts.githubRepo,
       GITHUB_TOKEN: opts.githubToken,

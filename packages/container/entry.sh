@@ -42,39 +42,38 @@ $PM install
 detect_dev_command() {
   local pkg="$WORKSPACE/package.json"
   if [ ! -f "$pkg" ]; then
-    echo "npm start"
+    echo "$PM start"
     return
   fi
 
-  # Check for specific frameworks in dependencies
+  # Framework-specific commands with correct host binding
   if grep -q '"next"' "$pkg"; then
-    echo "$PM run dev"
-    return
-  fi
-  if grep -q '"astro"' "$pkg"; then
-    echo "$PM run dev"
-    return
-  fi
-  if grep -q '"vite"' "$pkg" || grep -q '"@vitejs/plugin-react"' "$pkg"; then
-    echo "$PM run dev"
-    return
-  fi
-  if grep -q '"@sveltejs/kit"' "$pkg"; then
-    echo "$PM run dev"
+    echo "$PM run dev -- -p 3000 -H 0.0.0.0"
     return
   fi
   if grep -q '"nuxt"' "$pkg"; then
-    echo "$PM run dev"
+    echo "$PM run dev -- --port 3000 --host 0.0.0.0"
+    return
+  fi
+  if grep -q '"astro"' "$pkg"; then
+    echo "$PM run dev -- --port 3000 --host 0.0.0.0"
+    return
+  fi
+  if grep -q '"vite"' "$pkg" || grep -q '"@vitejs/plugin-react"' "$pkg"; then
+    echo "$PM run dev -- --port 3000 --host 0.0.0.0"
+    return
+  fi
+  if grep -q '"@sveltejs/kit"' "$pkg"; then
+    echo "$PM run dev -- --port 3000 --host 0.0.0.0"
     return
   fi
 
-  # Check if "dev" script exists
+  # Generic: try dev script with host flag
   if grep -q '"dev"' "$pkg"; then
-    echo "$PM run dev"
+    echo "$PM run dev -- --port 3000 --host 0.0.0.0"
     return
   fi
 
-  # Fallback
   echo "$PM start"
 }
 
@@ -102,15 +101,19 @@ git config user.name "Layrr"
 
 # ---- Start dev server in background ----
 echo "[layrr-container] Starting dev server..."
-$DEV_CMD --port 3000 &
+echo "[layrr-container] Command: $DEV_CMD"
+$DEV_CMD &
 DEV_PID=$!
 
-# Wait for dev server to be ready
+# Wait for dev server to be ready (longer timeout for large projects)
 echo "[layrr-container] Waiting for dev server on port 3000..."
-for i in $(seq 1 60); do
+for i in $(seq 1 120); do
   if curl -s http://localhost:3000 > /dev/null 2>&1; then
     echo "[layrr-container] Dev server ready!"
     break
+  fi
+  if [ $i -eq 120 ]; then
+    echo "[layrr-container] Warning: dev server took too long, starting proxy anyway..."
   fi
   sleep 2
 done

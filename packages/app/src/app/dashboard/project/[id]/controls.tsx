@@ -6,21 +6,16 @@ export function ContainerControls({
   projectId,
   status,
   framework,
-  machineId,
 }: {
   projectId: string;
   status: string;
   framework: string | null;
-  machineId: string | null;
 }) {
   const [containerStatus, setContainerStatus] = useState(status);
   const [loading, setLoading] = useState(false);
-  const [currentMachineId, setCurrentMachineId] = useState(machineId);
+  const [proxyPort, setProxyPort] = useState<number | null>(null);
 
-  const flyApp = process.env.NEXT_PUBLIC_FLY_APP_NAME || "layrr-containers";
-  const editorUrl = currentMachineId
-    ? `https://${flyApp}.fly.dev`
-    : `https://${projectId}.layrr.dev`;
+  const editorUrl = proxyPort ? `http://localhost:${proxyPort}` : null;
   const isRunning = containerStatus === "RUNNING";
   const isStarting = containerStatus === "STARTING" || containerStatus === "CREATING";
 
@@ -29,9 +24,19 @@ export function ContainerControls({
     setContainerStatus("STARTING");
     try {
       const res = await fetch(`/api/containers/${projectId}/start`, { method: "POST" });
-      if (!res.ok) throw new Error("Failed to start");
-      // Poll for status
-      pollStatus();
+      const data = await res.json();
+      if (res.ok) {
+        if (data.proxyPort) setProxyPort(data.proxyPort);
+        if (data.status === "RUNNING") {
+          setContainerStatus("RUNNING");
+          setLoading(false);
+        } else {
+          pollStatus();
+        }
+      } else {
+        setContainerStatus("ERROR");
+        setLoading(false);
+      }
     } catch {
       setContainerStatus("ERROR");
       setLoading(false);
@@ -44,6 +49,7 @@ export function ContainerControls({
     try {
       await fetch(`/api/containers/${projectId}/stop`, { method: "POST" });
       setContainerStatus("STOPPED");
+      setProxyPort(null);
     } catch {
       setContainerStatus("ERROR");
     }
@@ -51,13 +57,13 @@ export function ContainerControls({
   }
 
   async function pollStatus() {
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 90; i++) {
       await new Promise((r) => setTimeout(r, 3000));
       try {
         const res = await fetch(`/api/containers/${projectId}/status`);
         const data = await res.json();
         setContainerStatus(data.status);
-        if (data.machineId) setCurrentMachineId(data.machineId);
+        if (data.proxyPort) setProxyPort(data.proxyPort);
         if (data.status === "RUNNING" || data.status === "ERROR") {
           setLoading(false);
           return;
@@ -84,7 +90,7 @@ export function ContainerControls({
       </div>
 
       <div className="flex items-center gap-3">
-        {isRunning ? (
+        {isRunning && editorUrl ? (
           <>
             <a
               href={editorUrl}

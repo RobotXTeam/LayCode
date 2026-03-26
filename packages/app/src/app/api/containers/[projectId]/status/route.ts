@@ -2,7 +2,7 @@ import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { projects } from "@/lib/schema";
 import { eq, and } from "drizzle-orm";
-import { getMachineStatus, flyStateToStatus } from "@/lib/fly";
+import { getContainerStatus } from "@/lib/server-api";
 import { NextResponse } from "next/server";
 
 export async function GET(
@@ -18,29 +18,24 @@ export async function GET(
     .limit(1);
   if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
 
-  let status: string = project.containerStatus;
+  try {
+    const result = await getContainerStatus(projectId);
+    const status = result.status === 'running' ? 'RUNNING' : result.status === 'starting' ? 'STARTING' : result.status === 'error' ? 'ERROR' : 'STOPPED';
 
-  // If we have a machine, check its real status
-  if (project.flyMachineId) {
-    try {
-      const flyState = await getMachineStatus(project.flyMachineId);
-      status = flyStateToStatus(flyState);
-
-      // Update DB if status changed
-      if (status !== project.containerStatus) {
-        await db.update(projects).set({
-          containerStatus: status as any,
-          updatedAt: new Date(),
-        }).where(eq(projects.id, projectId));
-      }
-    } catch {
-      // Can't reach Fly — use cached status
+    if (status !== project.containerStatus) {
+      await db.update(projects).set({
+        containerStatus: status as any,
+        framework: result.framework || project.framework,
+        updatedAt: new Date(),
+      }).where(eq(projects.id, projectId));
     }
-  }
 
-  return NextResponse.json({
-    status,
-    framework: project.framework,
-    machineId: project.flyMachineId,
-  });
+    return NextResponse.json({
+      status,
+      framework: result.framework || project.framework,
+      proxyPort: result.proxyPort,
+    });
+  } catch {
+    return NextResponse.json({ status: project.containerStatus, framework: project.framework });
+  }
 }
