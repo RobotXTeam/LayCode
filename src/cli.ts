@@ -107,6 +107,36 @@ console.log(`
   Project:     ${projectRoot}
 `);
 
+// ---- Ensure git repo is ready ----
+try {
+  execSync('git rev-parse --git-dir', { cwd: projectRoot, stdio: 'pipe' });
+  // Repo exists — check if there are any commits
+  try {
+    execSync('git rev-parse HEAD', { cwd: projectRoot, stdio: 'pipe' });
+    // Has commits — check for uncommitted changes
+    const status = execSync('git status --porcelain', { cwd: projectRoot, encoding: 'utf-8' }).trim();
+    if (status) {
+      console.log('  ↪ Committing existing changes before starting...');
+      execSync('git add -A', { cwd: projectRoot, stdio: 'pipe' });
+      execSync('git commit -m "pre-layrr snapshot"', { cwd: projectRoot, stdio: 'pipe' });
+      console.log('  ✓ Existing changes committed');
+    }
+  } catch {
+    // No commits yet — initial commit
+    console.log('  ↪ Creating initial commit...');
+    execSync('git add -A', { cwd: projectRoot, stdio: 'pipe' });
+    execSync('git commit -m "initial commit"', { cwd: projectRoot, stdio: 'pipe' });
+    console.log('  ✓ Initial commit created');
+  }
+} catch {
+  // Not a git repo — initialize one
+  console.log('  ↪ Initializing git repository...');
+  execSync('git init', { cwd: projectRoot, stdio: 'pipe' });
+  execSync('git add -A', { cwd: projectRoot, stdio: 'pipe' });
+  execSync('git commit -m "initial commit"', { cwd: projectRoot, stdio: 'pipe' });
+  console.log('  ✓ Git repository initialized');
+}
+
 const agent = createAgent(agentName, { projectRoot });
 editQueue.projectRoot = projectRoot;
 
