@@ -1,0 +1,11 @@
+
+> layrr@2026.3.3 build /Users/kiran/Desktop/layrr/packages/cli
+> tsx scripts/build.ts
+
+Built dist/overlay.js
+npm warn Unknown env config "npm-globalconfig". This will stop working in the next major version of npm.
+npm warn Unknown env config "verify-deps-before-run". This will stop working in the next major version of npm.
+npm warn Unknown env config "_jsr-registry". This will stop working in the next major version of npm.
+Built dist/ (TypeScript)
+Copied Lucide fonts to dist/fonts/
+Copied Geist Mono fonts to dist/fonts/

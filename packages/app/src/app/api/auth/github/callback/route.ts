@@ -1,0 +1,73 @@
+import { github, getSession } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { users } from "@/lib/schema";
+import { eq } from "drizzle-orm";
+import { cookies } from "next/headers";
+import { NextResponse } from "next/server";
+
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const code = url.searchParams.get("code");
+  const state = url.searchParams.get("state");
+
+  const cookieStore = await cookies();
+  const storedState = cookieStore.get("github_oauth_state")?.value;
+
+  if (!code || !state || state !== storedState) {
+    return NextResponse.redirect(new URL("/sign-in?error=invalid_state", req.url));
+  }
+
+  try {
+    const tokens = await github.validateAuthorizationCode(code);
+    const accessToken = tokens.accessToken();
+
+    // Fetch GitHub user info
+    const userRes = await fetch("https://api.github.com/user", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const githubUser = await userRes.json();
+
+    // Fetch email
+    const emailRes = await fetch("https://api.github.com/user/emails", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const emails = await emailRes.json();
+    const primaryEmail = emails.find((e: any) => e.primary)?.email || githubUser.email || "";
+
+    // Upsert user
+    const existing = await db.select().from(users).where(eq(users.githubId, String(githubUser.id))).limit(1);
+
+    let userId: string;
+    if (existing.length > 0) {
+      userId = existing[0].id;
+      await db.update(users).set({
+        githubToken: accessToken,
+        email: primaryEmail,
+        githubUsername: githubUser.login,
+        updatedAt: new Date(),
+      }).where(eq(users.id, userId));
+    } else {
+      const [newUser] = await db.insert(users).values({
+        githubId: String(githubUser.id),
+        email: primaryEmail,
+        githubUsername: githubUser.login,
+        githubToken: accessToken,
+      }).returning();
+      userId = newUser.id;
+    }
+
+    // Set session
+    const session = await getSession();
+    session.userId = userId;
+    session.githubToken = accessToken;
+    session.githubUsername = githubUser.login;
+    await session.save();
+
+    cookieStore.delete("github_oauth_state");
+
+    return NextResponse.redirect(new URL("/dashboard", req.url));
+  } catch (error) {
+    console.error("GitHub OAuth error:", error);
+    return NextResponse.redirect(new URL("/sign-in?error=oauth_failed", req.url));
+  }
+}
