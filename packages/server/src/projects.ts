@@ -194,7 +194,8 @@ export async function startProject(id: string, githubRepo: string, branch: strin
     // Start layrr proxy
     const layrCli = join(process.cwd(), '..', 'cli', 'dist', 'cli.js');
     addLog(project, `Starting layrr proxy on port ${proxyPort}...`);
-    project.proxyProcess = spawn('node', [layrCli, '--port', String(devPort), '--proxy-port', String(proxyPort), '--no-open', '--agent', 'claude'], {
+    const agent = process.env.LAYRR_AGENT || 'pi-mono';
+    project.proxyProcess = spawn('node', [layrCli, '--port', String(devPort), '--proxy-port', String(proxyPort), '--no-open', '--agent', agent], {
       cwd: workDir,
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: true,

@@ -1,3 +1,6 @@
+import dotenv from 'dotenv';
+import { join } from 'path';
+dotenv.config({ path: join(process.cwd(), '..', '..', '.env') });
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { serve } from '@hono/node-server';
