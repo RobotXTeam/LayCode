@@ -1,12 +1,14 @@
 import type { Agent, AgentName, AgentOptions, AgentCheckResult } from './base.js';
 import { ClaudeAgent, checkClaude } from './claude.js';
 import { CodexAgent, checkCodex } from './codex.js';
+import { PiMonoAgent, checkPiMono } from './pi-mono.js';
 
 export type { Agent, AgentName, AgentOptions };
 
 export const AGENT_LIST: { name: AgentName; displayName: string }[] = [
   { name: 'claude', displayName: 'Claude Code' },
   { name: 'codex', displayName: 'Codex CLI' },
+  { name: 'pi-mono', displayName: 'Pi Mono' },
 ];
 
 const AGENTS: Record<AgentName, {
@@ -32,6 +34,20 @@ const AGENTS: Record<AgentName, {
     authHint: `  Set your OpenAI API key:
 
     export OPENAI_API_KEY=<your-key>`,
+  },
+  'pi-mono': {
+    create: (opts) => new PiMonoAgent(opts),
+    check: checkPiMono,
+    installHint: 'Bundled — just configure an LLM provider API key',
+    authHint: `  Set any supported LLM provider key:
+
+    export ANTHROPIC_API_KEY=<key>    # Anthropic
+    export OPENAI_API_KEY=<key>       # OpenAI
+    export GOOGLE_API_KEY=<key>       # Google
+    export GROQ_API_KEY=<key>         # Groq
+    export OPENROUTER_API_KEY=<key>   # OpenRouter
+
+    Or run: pi login`,
   },
 };
 

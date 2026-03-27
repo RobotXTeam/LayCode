@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from 'child_process';
 import type { PendingEditRequest } from '../server/edit-queue.js';
 
-export type AgentName = 'claude' | 'codex';
+export type AgentName = 'claude' | 'codex' | 'pi-mono';
 
 export interface Agent {
   readonly name: AgentName;
