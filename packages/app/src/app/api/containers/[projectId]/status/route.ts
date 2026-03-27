@@ -18,10 +18,18 @@ export async function GET(
     .limit(1);
   if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
 
+  // Check actual process state from server
   try {
     const result = await getContainerStatus(projectId);
-    const status = result.status === 'running' ? 'RUNNING' : result.status === 'starting' ? 'STARTING' : result.status === 'error' ? 'ERROR' : 'STOPPED';
+    const statusMap: Record<string, string> = {
+      running: "RUNNING",
+      starting: "STARTING",
+      error: "ERROR",
+      stopped: "STOPPED",
+    };
+    const status = statusMap[result.status] || "STOPPED";
 
+    // Sync DB if different
     if (status !== project.containerStatus) {
       await db.update(projects).set({
         containerStatus: status as any,
@@ -32,10 +40,14 @@ export async function GET(
 
     return NextResponse.json({
       status,
-      framework: result.framework || project.framework,
       proxyPort: result.proxyPort,
+      framework: result.framework || project.framework,
     });
   } catch {
-    return NextResponse.json({ status: project.containerStatus, framework: project.framework });
+    // Server unreachable — use DB value
+    return NextResponse.json({
+      status: project.containerStatus,
+      framework: project.framework,
+    });
   }
 }

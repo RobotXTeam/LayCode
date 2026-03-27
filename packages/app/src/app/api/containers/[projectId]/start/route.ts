@@ -25,30 +25,28 @@ export async function POST(
     return NextResponse.json({ error: "GitHub not connected" }, { status: 400 });
   }
 
-  try {
-    await db.update(projects).set({
-      containerStatus: "STARTING" as any,
-      updatedAt: new Date(),
-    }).where(eq(projects.id, projectId));
+  // Update DB immediately
+  await db.update(projects).set({
+    containerStatus: "STARTING" as any,
+    lastActiveAt: new Date(),
+    updatedAt: new Date(),
+  }).where(eq(projects.id, projectId));
 
-    const result = await startContainer(projectId, project.githubRepo, project.branch, user.githubToken);
-
-    await db.update(projects).set({
-      containerStatus: result.status === 'running' ? 'RUNNING' as any : 'STARTING' as any,
-      framework: result.framework,
-      updatedAt: new Date(),
-    }).where(eq(projects.id, projectId));
-
-    return NextResponse.json({
-      status: result.status === 'running' ? 'RUNNING' : 'STARTING',
-      proxyPort: result.proxyPort,
-      framework: result.framework,
+  // Fire and forget — don't await the long process
+  startContainer(projectId, project.githubRepo, project.branch, user.githubToken)
+    .then(async (result) => {
+      await db.update(projects).set({
+        containerStatus: result.status === 'running' ? 'RUNNING' as any : 'ERROR' as any,
+        framework: result.framework,
+        updatedAt: new Date(),
+      }).where(eq(projects.id, projectId));
+    })
+    .catch(async () => {
+      await db.update(projects).set({
+        containerStatus: "ERROR" as any,
+        updatedAt: new Date(),
+      }).where(eq(projects.id, projectId));
     });
-  } catch (error: any) {
-    await db.update(projects).set({
-      containerStatus: "ERROR" as any,
-      updatedAt: new Date(),
-    }).where(eq(projects.id, projectId));
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+
+  return NextResponse.json({ status: "STARTING" });
 }

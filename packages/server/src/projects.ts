@@ -1,10 +1,14 @@
 import { spawn, type ChildProcess, execSync } from 'child_process';
 import { existsSync, mkdirSync, readFileSync } from 'fs';
 import { join } from 'path';
+import { createServer } from 'net';
 
 const WORKSPACE_DIR = process.env.WORKSPACE_DIR || join(process.env.HOME || '/tmp', '.layrr', 'workspaces');
-let nextPort = 5100; // dev server ports start here
-let nextProxyPort = 6100; // layrr proxy ports start here
+
+const DEV_PORT_START = 5100;
+const DEV_PORT_END = 5199;
+const PROXY_PORT_START = 6100;
+const PROXY_PORT_END = 6199;
 
 export interface ProjectProcess {
   id: string;
@@ -21,11 +25,33 @@ export interface ProjectProcess {
 }
 
 const projects = new Map<string, ProjectProcess>();
+const usedDevPorts = new Set<number>();
+const usedProxyPorts = new Set<number>();
 
-function allocatePorts() {
-  const devPort = nextPort++;
-  const proxyPort = nextProxyPort++;
-  return { devPort, proxyPort };
+// Check if a port is actually in use
+function isPortInUse(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = createServer();
+    server.once('error', () => resolve(true));
+    server.once('listening', () => { server.close(); resolve(false); });
+    server.listen(port, '0.0.0.0');
+  });
+}
+
+async function allocatePort(start: number, end: number, usedSet: Set<number>): Promise<number> {
+  for (let port = start; port <= end; port++) {
+    if (usedSet.has(port)) continue;
+    const inUse = await isPortInUse(port);
+    if (!inUse) {
+      usedSet.add(port);
+      return port;
+    }
+  }
+  throw new Error(`No available ports in range ${start}-${end}`);
+}
+
+function releasePort(port: number, usedSet: Set<number>) {
+  usedSet.delete(port);
 }
 
 function addLog(project: ProjectProcess, msg: string) {
@@ -58,7 +84,6 @@ function detectFramework(workDir: string): string {
 }
 
 function getDevCommand(framework: string, pm: string, port: number): { cmd: string; args: string[] } {
-  // Run framework binaries directly to avoid pnpm arg passing issues
   switch (framework) {
     case 'nextjs':
       return { cmd: 'npx', args: ['next', 'dev', '-p', String(port), '-H', '0.0.0.0'] };
@@ -75,12 +100,33 @@ function getDevCommand(framework: string, pm: string, port: number): { cmd: stri
   }
 }
 
+function killProcess(proc: ChildProcess | null) {
+  if (!proc || proc.killed) return;
+  try {
+    // Kill the process group to catch child processes
+    process.kill(-proc.pid!, 'SIGTERM');
+  } catch {
+    try { proc.kill('SIGTERM'); } catch {}
+  }
+  // Force kill after 5s
+  setTimeout(() => {
+    try { proc.kill('SIGKILL'); } catch {}
+  }, 5000);
+}
+
 export async function startProject(id: string, githubRepo: string, branch: string, githubToken: string): Promise<ProjectProcess> {
-  // Check if already running
+  // If already running, return it
   const existing = projects.get(id);
   if (existing && existing.status === 'running') return existing;
 
-  const { devPort, proxyPort } = allocatePorts();
+  // If exists but stopped/error, clean up old ports
+  if (existing) {
+    releasePort(existing.devPort, usedDevPorts);
+    releasePort(existing.proxyPort, usedProxyPorts);
+  }
+
+  const devPort = await allocatePort(DEV_PORT_START, DEV_PORT_END, usedDevPorts);
+  const proxyPort = await allocatePort(PROXY_PORT_START, PROXY_PORT_END, usedProxyPorts);
   const workDir = join(WORKSPACE_DIR, id);
 
   const project: ProjectProcess = {
@@ -109,15 +155,12 @@ export async function startProject(id: string, githubRepo: string, branch: strin
       );
     }
 
-    // Setup git for layrr
     execSync('git config user.email "layrr@layrr.dev" && git config user.name "Layrr"', { cwd: workDir, stdio: 'pipe' });
 
-    // Detect framework + package manager
     const pm = detectPackageManager(workDir);
     project.framework = detectFramework(workDir);
     addLog(project, `Framework: ${project.framework}, PM: ${pm}`);
 
-    // Install deps
     addLog(project, 'Installing dependencies...');
     execSync(`${pm} install`, { cwd: workDir, stdio: 'pipe', timeout: 120000 });
     addLog(project, 'Dependencies installed');
@@ -129,16 +172,19 @@ export async function startProject(id: string, githubRepo: string, branch: strin
       cwd: workDir,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, PORT: String(devPort), HOST: '0.0.0.0' },
+      detached: true, // create process group for clean kill
     });
 
     project.devProcess.stdout?.on('data', (d: Buffer) => addLog(project, d.toString().trim()));
     project.devProcess.stderr?.on('data', (d: Buffer) => addLog(project, d.toString().trim()));
     project.devProcess.on('exit', (code) => {
       addLog(project, `Dev server exited with code ${code}`);
-      if (project.status === 'running') project.status = 'error';
+      if (project.status === 'running') {
+        project.status = 'error';
+        releasePort(devPort, usedDevPorts);
+      }
     });
 
-    // Wait for dev server
     addLog(project, `Waiting for dev server on port ${devPort}...`);
     await waitForPort(devPort, 120000);
     addLog(project, 'Dev server ready');
@@ -149,27 +195,33 @@ export async function startProject(id: string, githubRepo: string, branch: strin
     project.proxyProcess = spawn('node', [layrCli, '--port', String(devPort), '--proxy-port', String(proxyPort), '--no-open', '--agent', 'claude'], {
       cwd: workDir,
       stdio: ['ignore', 'pipe', 'pipe'],
+      detached: true,
     });
 
     project.proxyProcess.stdout?.on('data', (d: Buffer) => addLog(project, `[proxy] ${d.toString().trim()}`));
     project.proxyProcess.stderr?.on('data', (d: Buffer) => addLog(project, `[proxy] ${d.toString().trim()}`));
     project.proxyProcess.on('exit', (code) => {
       addLog(project, `Proxy exited with code ${code}`);
-      if (project.status === 'running') project.status = 'error';
+      if (project.status === 'running') {
+        project.status = 'error';
+        releasePort(proxyPort, usedProxyPorts);
+      }
     });
 
-    // Wait for proxy
     await waitForPort(proxyPort, 30000);
     project.status = 'running';
-    addLog(project, `Ready! Proxy at http://localhost:${proxyPort}`);
+    addLog(project, `Ready! Dev: ${devPort}, Proxy: ${proxyPort}`);
 
     return project;
   } catch (err: any) {
     addLog(project, `Error: ${err.message}`);
     project.status = 'error';
-    // Clean up processes
-    project.devProcess?.kill();
-    project.proxyProcess?.kill();
+    killProcess(project.devProcess);
+    killProcess(project.proxyProcess);
+    project.devProcess = null;
+    project.proxyProcess = null;
+    releasePort(devPort, usedDevPorts);
+    releasePort(proxyPort, usedProxyPorts);
     throw err;
   }
 }
@@ -178,12 +230,18 @@ export function stopProject(id: string): boolean {
   const project = projects.get(id);
   if (!project) return false;
 
-  project.proxyProcess?.kill();
-  project.devProcess?.kill();
+  addLog(project, 'Stopping...');
+
+  killProcess(project.proxyProcess);
+  killProcess(project.devProcess);
   project.proxyProcess = null;
   project.devProcess = null;
+
+  releasePort(project.devPort, usedDevPorts);
+  releasePort(project.proxyPort, usedProxyPorts);
+
   project.status = 'stopped';
-  addLog(project, 'Stopped');
+  addLog(project, 'Stopped — ports released');
   return true;
 }
 

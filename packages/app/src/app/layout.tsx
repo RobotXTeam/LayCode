@@ -18,8 +18,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${geistMono.variable} dark`}>
-      <body className="min-h-screen bg-zinc-950 text-zinc-100 font-mono antialiased">
+    <html lang="en" className={geistMono.variable}>
+      <body className={`${geistMono.className} min-h-screen antialiased`}>
         {children}
       </body>
     </html>
