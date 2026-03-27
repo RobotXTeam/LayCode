@@ -1,5 +1,5 @@
-import { WebSocketServer } from 'ws';
-import { createServer, type Server } from 'http';
+import { WebSocketServer, WebSocket } from 'ws';
+import { createServer, type Server, request as httpRequest } from 'http';
 import { execSync } from 'child_process';
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
@@ -138,7 +138,11 @@ export async function startProxy(
       } else {
         const body = Buffer.from(await resp.arrayBuffer());
         const respHeaders: Record<string, string> = {};
-        resp.headers.forEach((value, key) => { respHeaders[key] = value; });
+        resp.headers.forEach((value, key) => {
+          if (key !== 'content-encoding' && key !== 'content-length') {
+            respHeaders[key] = value;
+          }
+        });
 
         res.writeHead(resp.status, respHeaders);
         res.end(body);
@@ -149,9 +153,43 @@ export async function startProxy(
     }
   });
 
-  // WebSocket server
-  const wss = new WebSocketServer({ server: httpServer, path: '/__layrr__/ws' });
+  // WebSocket server for layrr overlay
+  const wss = new WebSocketServer({ noServer: true });
   wss.on('connection', (ws) => handleWsConnection(ws, projectRoot));
+
+  // Handle WebSocket upgrades: layrr overlay vs dev server (HMR, etc.)
+  httpServer.on('upgrade', (req, socket, head) => {
+    if (req.url === '/__layrr__/ws') {
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.emit('connection', ws, req);
+      });
+    } else {
+      // Proxy WebSocket to dev server
+      const proxyReq = httpRequest({
+        hostname: 'localhost',
+        port: targetPort,
+        path: req.url,
+        method: 'GET',
+        headers: { ...req.headers, host: `localhost:${targetPort}` },
+      });
+
+      proxyReq.on('upgrade', (proxyRes, proxySocket, proxyHead) => {
+        socket.write(
+          `HTTP/1.1 ${proxyRes.statusCode || 101} ${proxyRes.statusMessage || 'Switching Protocols'}\r\n` +
+          Object.entries(proxyRes.headers).map(([k, v]) => `${k}: ${v}`).join('\r\n') +
+          '\r\n\r\n'
+        );
+        if (proxyHead.length) socket.write(proxyHead);
+        proxySocket.pipe(socket);
+        socket.pipe(proxySocket);
+      });
+
+      proxyReq.on('error', () => socket.destroy());
+      socket.on('error', () => proxyReq.destroy());
+
+      proxyReq.end();
+    }
+  });
 
   return new Promise((resolve) => {
     httpServer!.listen(proxyPort, () => resolve());

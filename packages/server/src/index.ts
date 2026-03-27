@@ -4,7 +4,7 @@ dotenv.config({ path: join(process.cwd(), '..', '..', '.env') });
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { serve } from '@hono/node-server';
-import { startProject, stopProject, getProject, getProjectLogs, freshClone, pushChanges, getEditHistory, getEditCount } from './projects.js';
+import { startProject, stopProject, getProject, getProjectLogs, freshClone, pushChanges, getEditHistory, getEditCount, createFromTemplate } from './projects.js';
 
 const app = new Hono();
 const PORT = Number(process.env.SERVER_PORT || 8787);
@@ -25,10 +25,6 @@ app.use('*', async (c, next) => {
 app.post('/projects/:id/start', async (c) => {
   const { id } = c.req.param();
   const { githubRepo, branch, githubToken, gitUsername, gitEmail } = await c.req.json();
-
-  if (!githubRepo || !githubToken) {
-    return c.json({ error: 'Missing githubRepo or githubToken' }, 400);
-  }
 
   try {
     const project = await startProject(id, githubRepo, branch || 'main', githubToken, gitUsername, gitEmail);
@@ -64,6 +60,23 @@ app.get('/projects/:id/status', (c) => {
     framework: project.framework,
     editCount: (project as any).editCount || 0,
   });
+});
+
+// Create from template
+app.post('/projects/:id/create-from-template', async (c) => {
+  const { id } = c.req.param();
+  const { name, prompt, gitUsername, gitEmail } = await c.req.json();
+  try {
+    const project = await createFromTemplate(id, name, prompt, gitUsername, gitEmail);
+    return c.json({
+      status: project.status,
+      proxyPort: project.proxyPort,
+      devPort: project.devPort,
+      framework: project.framework,
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
 });
 
 // Fresh clone — delete workspace

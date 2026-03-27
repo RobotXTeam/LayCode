@@ -15,8 +15,10 @@ export const projects = sqliteTable("projects", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: text("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   name: text("name").notNull(),
-  githubRepo: text("github_repo").notNull(),
+  githubRepo: text("github_repo"),
   branch: text("branch").default("main").notNull(),
+  sourceType: text("source_type", { enum: ["github", "template"] }).default("github").notNull(),
+  initialPrompt: text("initial_prompt"),
   framework: text("framework"),
   containerStatus: text("container_status", {
     enum: ["CREATING", "STARTING", "RUNNING", "STOPPING", "STOPPED", "ERROR"],

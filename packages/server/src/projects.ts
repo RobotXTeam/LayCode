@@ -146,12 +146,14 @@ export async function startProject(id: string, githubRepo: string, branch: strin
     // Clone only if workspace doesn't exist
     if (existsSync(join(workDir, '.git'))) {
       addLog(project, 'Workspace exists, reusing...');
-    } else {
+    } else if (githubRepo && githubToken) {
       addLog(project, `Cloning ${githubRepo}...`);
       execSync(
         `git clone --depth 1 --branch ${branch} https://x-access-token:${githubToken}@github.com/${githubRepo}.git ${workDir}`,
         { stdio: 'pipe' }
       );
+    } else {
+      throw new Error('No workspace found and no GitHub repo to clone. Try "Fresh Clone" or create a new project.');
     }
 
     const email = gitEmail || 'layrr@layrr.dev';
@@ -215,6 +217,112 @@ export async function startProject(id: string, githubRepo: string, branch: strin
     project.status = 'running';
     addLog(project, `Ready! Dev: ${devPort}, Proxy: ${proxyPort}`);
 
+    return project;
+  } catch (err: any) {
+    addLog(project, `Error: ${err.message}`);
+    project.status = 'error';
+    killProcess(project.devProcess);
+    killProcess(project.proxyProcess);
+    project.devProcess = null;
+    project.proxyProcess = null;
+    releasePort(devPort, usedDevPorts);
+    releasePort(proxyPort, usedProxyPorts);
+    throw err;
+  }
+}
+
+export async function createFromTemplate(id: string, name: string, prompt: string, gitUsername?: string, gitEmail?: string): Promise<ProjectProcess> {
+  const existing = projects.get(id);
+  if (existing && existing.status === 'running') return existing;
+  if (existing) {
+    releasePort(existing.devPort, usedDevPorts);
+    releasePort(existing.proxyPort, usedProxyPorts);
+  }
+
+  const devPort = await allocatePort(DEV_PORT_START, DEV_PORT_END, usedDevPorts);
+  const proxyPort = await allocatePort(PROXY_PORT_START, PROXY_PORT_END, usedProxyPorts);
+  const workDir = join(WORKSPACE_DIR, id);
+  const templateDir = join(process.cwd(), 'templates', 'nextjs-shadcn');
+
+  const project: ProjectProcess = {
+    id, githubRepo: '', branch: 'main',
+    framework: 'nextjs',
+    devProcess: null, proxyProcess: null,
+    devPort, proxyPort,
+    status: 'starting',
+    logs: [],
+    workDir,
+  };
+  projects.set(id, project);
+
+  try {
+    mkdirSync(WORKSPACE_DIR, { recursive: true });
+
+    // Copy template
+    addLog(project, `Creating ${name} from template...`);
+    execSync(`cp -r "${templateDir}" "${workDir}"`, { stdio: 'pipe' });
+
+    // Init git
+    execSync('git init', { cwd: workDir, stdio: 'pipe' });
+    const email = gitEmail || 'layrr@layrr.dev';
+    const uname = gitUsername || 'Layrr';
+    execSync(`git config user.email "${email}" && git config user.name "${uname}"`, { cwd: workDir, stdio: 'pipe' });
+    execSync('git add -A && git commit -m "initial template"', { cwd: workDir, stdio: 'pipe' });
+
+    // Install deps
+    addLog(project, 'Installing dependencies...');
+    execSync('pnpm install', { cwd: workDir, stdio: 'pipe', timeout: 120000 });
+    addLog(project, 'Dependencies installed');
+
+    // Start dev server
+    const devCmd = getDevCommand('nextjs', 'pnpm', devPort);
+    addLog(project, `Starting dev server on port ${devPort}...`);
+    project.devProcess = spawn(devCmd.cmd, devCmd.args, {
+      cwd: workDir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, PORT: String(devPort), HOST: '0.0.0.0' },
+      detached: true,
+    });
+    project.devProcess.stdout?.on('data', (d: Buffer) => addLog(project, d.toString().trim()));
+    project.devProcess.stderr?.on('data', (d: Buffer) => addLog(project, d.toString().trim()));
+    project.devProcess.on('exit', (code: number | null) => {
+      if (project.status === 'running') { project.status = 'error'; releasePort(devPort, usedDevPorts); }
+    });
+
+    addLog(project, 'Waiting for dev server...');
+    await waitForPort(devPort, 120000);
+    addLog(project, 'Dev server ready');
+
+    // Start layrr proxy
+    const layrCli = join(process.cwd(), '..', 'cli', 'dist', 'cli.js');
+    const agent = process.env.LAYRR_AGENT || 'pi-mono';
+    addLog(project, `Starting layrr proxy on port ${proxyPort}...`);
+    project.proxyProcess = spawn('node', [layrCli, '--port', String(devPort), '--proxy-port', String(proxyPort), '--no-open', '--agent', agent], {
+      cwd: workDir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: true,
+    });
+    project.proxyProcess.stdout?.on('data', (d: Buffer) => addLog(project, `[proxy] ${d.toString().trim()}`));
+    project.proxyProcess.stderr?.on('data', (d: Buffer) => addLog(project, `[proxy] ${d.toString().trim()}`));
+    project.proxyProcess.on('exit', (code: number | null) => {
+      if (project.status === 'running') { project.status = 'error'; releasePort(proxyPort, usedProxyPorts); }
+    });
+
+    await waitForPort(proxyPort, 30000);
+
+    // Run initial prompt through the proxy's WebSocket (pi-mono runs inside the CLI process)
+    if (prompt) {
+      addLog(project, 'Generating initial version...');
+      try {
+        await sendEditViaProxy(proxyPort, prompt);
+        addLog(project, 'Initial version generated');
+      } catch (err: any) {
+        addLog(project, `Generation warning: ${err.message}`);
+      }
+    }
+
+    project.status = 'running';
+    addLog(project, `Ready! Dev: ${devPort}, Proxy: ${proxyPort}`);
     return project;
   } catch (err: any) {
     addLog(project, `Error: ${err.message}`);
@@ -379,6 +487,43 @@ export async function cleanupOrphanProcesses() {
   } else {
     console.log('[layrr-server] No orphan processes found');
   }
+}
+
+async function sendEditViaProxy(proxyPort: number, prompt: string): Promise<void> {
+  const WebSocket = (await import('ws')).default;
+
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(`ws://localhost:${proxyPort}/__layrr__/ws`);
+    const timeout = setTimeout(() => { ws.close(); reject(new Error('Edit timed out')); }, 180000);
+
+    ws.on('open', () => {
+      const enhancedPrompt = `You are building a Next.js web application with Tailwind CSS and shadcn/ui components.\n\nThe user wants: ${prompt}\n\nEdit the files in this project to build what the user described. Focus on src/app/page.tsx as the main page. Use shadcn components where appropriate. Use lucide-react for icons and framer-motion for animations (both already installed). Make it look professional and modern.`;
+
+      ws.send(JSON.stringify({
+        type: 'edit-request',
+        selector: 'body',
+        tagName: 'body',
+        className: '',
+        textContent: '',
+        instruction: enhancedPrompt,
+        sourceInfo: { file: 'src/app/page.tsx', line: 1 },
+      }));
+    });
+
+    ws.on('message', (data: Buffer) => {
+      try {
+        const msg = JSON.parse(data.toString());
+        if (msg.type === 'edit-result') {
+          clearTimeout(timeout);
+          ws.close();
+          if (msg.success) resolve();
+          else reject(new Error(msg.message || 'Edit failed'));
+        }
+      } catch {}
+    });
+
+    ws.on('error', (err: Error) => { clearTimeout(timeout); reject(err); });
+  });
 }
 
 async function waitForPort(port: number, timeoutMs: number): Promise<void> {

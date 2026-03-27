@@ -8,6 +8,7 @@ import { ProjectActions } from "./project-actions";
 import { EditHistory } from "./edit-history";
 import { ArrowLeft, GitBranch, ExternalLink } from "lucide-react";
 import Link from "next/link";
+import { DeleteButton } from "../../delete-button";
 
 function GithubIcon({ className }: { className?: string }) {
   return (
@@ -78,6 +79,7 @@ export default async function ProjectPage({
               )}
             </div>
           </div>
+          <DeleteButton projectId={project.id} />
         </div>
       </div>
 

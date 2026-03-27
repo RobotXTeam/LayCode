@@ -40,6 +40,13 @@ export async function freshCloneProject(projectId: string) {
   return api(`/projects/${projectId}/fresh-clone`, { method: 'POST' });
 }
 
+export async function createFromTemplate(projectId: string, name: string, prompt: string, gitUsername?: string, gitEmail?: string) {
+  return api(`/projects/${projectId}/create-from-template`, {
+    method: 'POST',
+    body: JSON.stringify({ name, prompt, gitUsername, gitEmail }),
+  });
+}
+
 export async function pushProject(projectId: string, targetBranch: string, githubToken: string) {
   return api(`/projects/${projectId}/push`, {
     method: 'POST',
