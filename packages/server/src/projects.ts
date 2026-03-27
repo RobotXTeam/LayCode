@@ -114,7 +114,7 @@ function killProcess(proc: ChildProcess | null) {
   }, 5000);
 }
 
-export async function startProject(id: string, githubRepo: string, branch: string, githubToken: string): Promise<ProjectProcess> {
+export async function startProject(id: string, githubRepo: string, branch: string, githubToken: string, gitUsername?: string, gitEmail?: string): Promise<ProjectProcess> {
   // If already running, return it
   const existing = projects.get(id);
   if (existing && existing.status === 'running') return existing;
@@ -143,10 +143,9 @@ export async function startProject(id: string, githubRepo: string, branch: strin
   try {
     mkdirSync(WORKSPACE_DIR, { recursive: true });
 
-    // Clone or pull
+    // Clone only if workspace doesn't exist
     if (existsSync(join(workDir, '.git'))) {
-      addLog(project, 'Pulling latest...');
-      execSync(`git fetch origin && git checkout ${branch} && git reset --hard origin/${branch}`, { cwd: workDir, stdio: 'pipe' });
+      addLog(project, 'Workspace exists, reusing...');
     } else {
       addLog(project, `Cloning ${githubRepo}...`);
       execSync(
@@ -155,7 +154,10 @@ export async function startProject(id: string, githubRepo: string, branch: strin
       );
     }
 
-    execSync('git config user.email "layrr@layrr.dev" && git config user.name "Layrr"', { cwd: workDir, stdio: 'pipe' });
+    const email = gitEmail || 'layrr@layrr.dev';
+    const name = gitUsername || 'Layrr';
+    execSync(`git config user.email "${email}" && git config user.name "${name}"`, { cwd: workDir, stdio: 'pipe' });
+    addLog(project, `Git identity: ${name} <${email}>`);
 
     const pm = detectPackageManager(workDir);
     project.framework = detectFramework(workDir);
@@ -245,12 +247,137 @@ export function stopProject(id: string): boolean {
   return true;
 }
 
-export function getProject(id: string): ProjectProcess | undefined {
-  return projects.get(id);
+export function freshClone(id: string): boolean {
+  const project = projects.get(id);
+  if (!project) return false;
+  if (project.status === 'running') return false; // must stop first
+
+  const workDir = project.workDir;
+  try {
+    execSync(`rm -rf "${workDir}"`, { stdio: 'pipe' });
+    addLog(project, 'Workspace deleted — will fresh clone on next start');
+    return true;
+  } catch (err: any) {
+    addLog(project, `Fresh clone cleanup failed: ${err.message}`);
+    return false;
+  }
+}
+
+export function pushChanges(id: string, targetBranch: string, githubToken: string): { success: boolean; message: string } {
+  const project = projects.get(id);
+  if (!project) return { success: false, message: 'Project not found' };
+
+  const workDir = project.workDir;
+  if (!existsSync(join(workDir, '.git'))) {
+    return { success: false, message: 'No workspace found' };
+  }
+
+  try {
+    // Set remote with token for auth
+    const remoteUrl = `https://x-access-token:${githubToken}@github.com/${project.githubRepo}.git`;
+    execSync(`git remote set-url origin "${remoteUrl}"`, { cwd: workDir, stdio: 'pipe' });
+
+    // Check if there are layrr commits to push
+    const log = execSync('git log --oneline --grep="\\[layrr\\]" origin/HEAD..HEAD 2>/dev/null || echo ""', { cwd: workDir, encoding: 'utf-8' }).trim();
+    if (!log) {
+      return { success: false, message: 'No layrr edits to push' };
+    }
+
+    const commitCount = log.split('\n').filter(Boolean).length;
+
+    if (targetBranch === project.branch) {
+      // Push directly to the same branch
+      execSync(`git push origin HEAD:${targetBranch}`, { cwd: workDir, stdio: 'pipe' });
+      addLog(project, `Pushed ${commitCount} edit(s) to ${targetBranch}`);
+      return { success: true, message: `Pushed ${commitCount} edit(s) to ${targetBranch}` };
+    } else {
+      // Push to a new branch
+      execSync(`git push origin HEAD:refs/heads/${targetBranch}`, { cwd: workDir, stdio: 'pipe' });
+      addLog(project, `Pushed ${commitCount} edit(s) to new branch ${targetBranch}`);
+      return { success: true, message: `Pushed ${commitCount} edit(s) to ${targetBranch}` };
+    }
+  } catch (err: any) {
+    const msg = err.message || 'Push failed';
+    addLog(project, `Push failed: ${msg}`);
+    return { success: false, message: msg };
+  }
+}
+
+export function getProject(id: string): ProjectProcess & { editCount?: number } | undefined {
+  const project = projects.get(id);
+  if (!project) return undefined;
+
+  return { ...project, editCount: getEditCount(id) };
+}
+
+export function getEditCount(id: string): number {
+  const workDir = join(WORKSPACE_DIR, id);
+  try {
+    if (existsSync(join(workDir, '.git'))) {
+      const log = execSync('git log --oneline --grep="\\[layrr\\]" 2>/dev/null || echo ""', {
+        cwd: workDir,
+        encoding: 'utf-8',
+      }).trim();
+      return log ? log.split('\n').filter(Boolean).length : 0;
+    }
+  } catch {}
+  return 0;
 }
 
 export function getProjectLogs(id: string): string[] {
   return projects.get(id)?.logs || [];
+}
+
+export function getEditHistory(id: string): Array<{ message: string; timeAgo: string; hash: string }> {
+  const workDir = join(WORKSPACE_DIR, id);
+
+  if (!existsSync(join(workDir, '.git'))) return [];
+
+  try {
+    const log = execSync(
+      'git log --grep="\\[layrr\\]" --format="%H|%s|%ar" -20 2>/dev/null || echo ""',
+      { cwd: workDir, encoding: 'utf-8' }
+    ).trim();
+
+    if (!log) return [];
+
+    return log.split('\n').filter(Boolean).map(line => {
+      const [hash, ...rest] = line.split('|');
+      const timeAgo = rest.pop()!;
+      const message = rest.join('|').replace('[layrr] ', '');
+      return { hash, message, timeAgo };
+    });
+  } catch {
+    return [];
+  }
+}
+
+export async function cleanupOrphanProcesses() {
+  console.log('[layrr-server] Checking for orphan processes...');
+  let killed = 0;
+
+  for (let port = DEV_PORT_START; port <= PROXY_PORT_END; port++) {
+    const inUse = await isPortInUse(port);
+    if (inUse) {
+      try {
+        // Find PID using this port and kill it
+        const pid = execSync(`lsof -ti :${port} 2>/dev/null || echo ""`, { encoding: 'utf-8' }).trim();
+        if (pid) {
+          pid.split('\n').forEach(p => {
+            try { process.kill(Number(p), 'SIGKILL'); killed++; } catch {}
+          });
+        }
+      } catch {}
+    }
+  }
+
+  if (killed > 0) {
+    console.log(`[layrr-server] Killed ${killed} orphan process(es)`);
+    // Wait a moment for ports to be released
+    await new Promise(r => setTimeout(r, 1000));
+  } else {
+    console.log('[layrr-server] No orphan processes found');
+  }
 }
 
 async function waitForPort(port: number, timeoutMs: number): Promise<void> {

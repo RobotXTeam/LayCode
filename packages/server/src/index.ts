@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { serve } from '@hono/node-server';
-import { startProject, stopProject, getProject, getProjectLogs } from './projects.js';
+import { startProject, stopProject, getProject, getProjectLogs, freshClone, pushChanges, getEditHistory, getEditCount } from './projects.js';
 
 const app = new Hono();
 const PORT = Number(process.env.SERVER_PORT || 8787);
@@ -21,14 +21,14 @@ app.use('*', async (c, next) => {
 // Start a project
 app.post('/projects/:id/start', async (c) => {
   const { id } = c.req.param();
-  const { githubRepo, branch, githubToken } = await c.req.json();
+  const { githubRepo, branch, githubToken, gitUsername, gitEmail } = await c.req.json();
 
   if (!githubRepo || !githubToken) {
     return c.json({ error: 'Missing githubRepo or githubToken' }, 400);
   }
 
   try {
-    const project = await startProject(id, githubRepo, branch || 'main', githubToken);
+    const project = await startProject(id, githubRepo, branch || 'main', githubToken, gitUsername, gitEmail);
     return c.json({
       status: project.status,
       proxyPort: project.proxyPort,
@@ -52,14 +52,40 @@ app.get('/projects/:id/status', (c) => {
   const { id } = c.req.param();
   const project = getProject(id);
   if (!project) {
-    return c.json({ status: 'stopped' });
+    return c.json({ status: 'stopped', editCount: getEditCount(id) });
   }
   return c.json({
     status: project.status,
     proxyPort: project.proxyPort,
     devPort: project.devPort,
     framework: project.framework,
+    editCount: (project as any).editCount || 0,
   });
+});
+
+// Fresh clone — delete workspace
+app.post('/projects/:id/fresh-clone', (c) => {
+  const { id } = c.req.param();
+  const done = freshClone(id);
+  return c.json({ success: done });
+});
+
+// Push changes to GitHub
+app.post('/projects/:id/push', async (c) => {
+  const { id } = c.req.param();
+  const { targetBranch, githubToken } = await c.req.json();
+  if (!targetBranch || !githubToken) {
+    return c.json({ error: 'Missing targetBranch or githubToken' }, 400);
+  }
+  const result = pushChanges(id, targetBranch, githubToken);
+  return c.json(result);
+});
+
+// Get edit history from git
+app.get('/projects/:id/edits', (c) => {
+  const { id } = c.req.param();
+  const edits = getEditHistory(id);
+  return c.json({ edits });
 });
 
 // Get project logs
@@ -69,6 +95,11 @@ app.get('/projects/:id/logs', (c) => {
   return c.json({ logs });
 });
 
-serve({ fetch: app.fetch, port: PORT }, () => {
-  console.log(`[layrr-server] Running on http://localhost:${PORT}`);
+import { cleanupOrphanProcesses } from './projects.js';
+
+// Kill orphan processes from previous runs before starting
+cleanupOrphanProcesses().then(() => {
+  serve({ fetch: app.fetch, port: PORT }, () => {
+    console.log(`[layrr-server] Running on http://localhost:${PORT}`);
+  });
 });

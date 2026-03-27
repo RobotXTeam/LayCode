@@ -42,6 +42,7 @@ export async function GET(
       status,
       proxyPort: result.proxyPort,
       framework: result.framework || project.framework,
+      editCount: result.editCount || 0,
     });
   } catch {
     // Server unreachable — use DB value

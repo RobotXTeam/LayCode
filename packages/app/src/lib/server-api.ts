@@ -13,10 +13,10 @@ async function api(path: string, opts: RequestInit = {}) {
   return res.json();
 }
 
-export async function startContainer(projectId: string, githubRepo: string, branch: string, githubToken: string) {
+export async function startContainer(projectId: string, githubRepo: string, branch: string, githubToken: string, gitUsername?: string, gitEmail?: string) {
   return api(`/projects/${projectId}/start`, {
     method: 'POST',
-    body: JSON.stringify({ githubRepo, branch, githubToken }),
+    body: JSON.stringify({ githubRepo, branch, githubToken, gitUsername, gitEmail }),
   });
 }
 
@@ -30,4 +30,19 @@ export async function getContainerStatus(projectId: string) {
 
 export async function getContainerLogs(projectId: string) {
   return api(`/projects/${projectId}/logs`);
+}
+
+export async function getEditHistory(projectId: string) {
+  return api(`/projects/${projectId}/edits`);
+}
+
+export async function freshCloneProject(projectId: string) {
+  return api(`/projects/${projectId}/fresh-clone`, { method: 'POST' });
+}
+
+export async function pushProject(projectId: string, targetBranch: string, githubToken: string) {
+  return api(`/projects/${projectId}/push`, {
+    method: 'POST',
+    body: JSON.stringify({ targetBranch, githubToken }),
+  });
 }

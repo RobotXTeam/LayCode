@@ -1,10 +1,12 @@
 import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { projects, editEvents } from "@/lib/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { projects } from "@/lib/schema";
+import { eq, and } from "drizzle-orm";
 import { redirect, notFound } from "next/navigation";
 import { ContainerControls } from "./controls";
-import { ArrowLeft, GitBranch, ExternalLink, Clock, CheckCircle2, XCircle } from "lucide-react";
+import { ProjectActions } from "./project-actions";
+import { EditHistory } from "./edit-history";
+import { ArrowLeft, GitBranch, ExternalLink } from "lucide-react";
 import Link from "next/link";
 
 function GithubIcon({ className }: { className?: string }) {
@@ -42,11 +44,6 @@ export default async function ProjectPage({
     .limit(1);
 
   if (!project) notFound();
-
-  const edits = await db.select().from(editEvents)
-    .where(eq(editEvents.projectId, id))
-    .orderBy(desc(editEvents.createdAt))
-    .limit(20);
 
   return (
     <div>
@@ -91,80 +88,18 @@ export default async function ProjectPage({
             projectId={project.id}
             status={project.containerStatus}
             framework={project.framework}
+            initialEditCount={0}
           />
         </div>
 
-        {/* Stats row */}
-        <div className="grid grid-cols-3 gap-3">
-          <div className="rounded-xl bg-card p-4 ring-1 ring-foreground/10">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Status</p>
-            <StatusPill status={project.containerStatus} />
-          </div>
-          <div className="rounded-xl bg-card p-4 ring-1 ring-foreground/10">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Edits</p>
-            <p className="text-lg font-bold">{edits.length}</p>
-          </div>
-          <div className="rounded-xl bg-card p-4 ring-1 ring-foreground/10">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Last Active</p>
-            <p className="text-xs font-medium mt-1">
-              {project.lastActiveAt ? timeAgo(project.lastActiveAt) : "—"}
-            </p>
-          </div>
-        </div>
+
+        {/* Actions */}
+        <ProjectActions projectId={project.id} branch={project.branch} />
 
         {/* Edit history */}
-        <div className="rounded-xl bg-card ring-1 ring-foreground/10 overflow-hidden">
-          <div className="px-5 py-4 border-b border-border flex items-center justify-between">
-            <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-              Edit History
-            </h2>
-            {edits.length > 0 && (
-              <span className="text-[10px] text-muted-foreground">{edits.length} edits</span>
-            )}
-          </div>
-          {edits.length === 0 ? (
-            <div className="px-5 py-12 text-center">
-              <Clock className="h-5 w-5 text-muted-foreground/40 mx-auto mb-2" />
-              <p className="text-xs text-muted-foreground">No edits yet</p>
-              <p className="text-[10px] text-muted-foreground/60 mt-1">Start the editor to make your first edit</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-border">
-              {edits.map((edit: any) => (
-                <div key={edit.id} className="px-5 py-3 flex items-center gap-3">
-                  {edit.success ? (
-                    <CheckCircle2 className="h-3.5 w-3.5 text-success flex-shrink-0" />
-                  ) : (
-                    <XCircle className="h-3.5 w-3.5 text-destructive flex-shrink-0" />
-                  )}
-                  <span className="text-xs flex-1 min-w-0 truncate">{edit.instruction}</span>
-                  <span className="text-[10px] text-muted-foreground flex-shrink-0">
-                    {timeAgo(edit.createdAt)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <EditHistory projectId={project.id} />
       </div>
     </div>
   );
 }
 
-function StatusPill({ status }: { status: string }) {
-  const styles: Record<string, { bg: string; dot: string }> = {
-    RUNNING: { bg: "bg-success/10 text-success", dot: "bg-success" },
-    STARTING: { bg: "bg-yellow-400/10 text-yellow-400", dot: "bg-yellow-400 animate-pulse" },
-    CREATING: { bg: "bg-yellow-400/10 text-yellow-400", dot: "bg-yellow-400 animate-pulse" },
-    STOPPED: { bg: "bg-secondary text-muted-foreground", dot: "bg-muted-foreground/50" },
-    ERROR: { bg: "bg-destructive/10 text-destructive", dot: "bg-destructive" },
-    STOPPING: { bg: "bg-secondary text-muted-foreground", dot: "bg-muted-foreground/50" },
-  };
-  const s = styles[status] || styles.STOPPED;
-  return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ${s.bg}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
-      {status.toLowerCase()}
-    </span>
-  );
-}

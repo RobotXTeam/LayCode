@@ -7,21 +7,31 @@ export function ContainerControls({
   projectId,
   status,
   framework,
+  initialEditCount = 0,
 }: {
   projectId: string;
   status: string;
   framework: string | null;
+  initialEditCount?: number;
 }) {
   const [containerStatus, setContainerStatus] = useState(status);
   const [loading, setLoading] = useState(false);
   const [proxyPort, setProxyPort] = useState<number | null>(null);
+  const [editCount, setEditCount] = useState(initialEditCount);
 
   const editorUrl = proxyPort ? `http://localhost:${proxyPort}` : null;
   const isRunning = containerStatus === "RUNNING";
   const isStarting = containerStatus === "STARTING" || containerStatus === "CREATING";
 
-  // Poll status on mount and while starting
+  const [mounted, setMounted] = useState(false);
+
+  // Only poll after hydration to avoid mismatch
   useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
     let active = true;
     async function check() {
       try {
@@ -30,12 +40,13 @@ export function ContainerControls({
         if (!active) return;
         setContainerStatus(data.status);
         if (data.proxyPort) setProxyPort(data.proxyPort);
+        if (data.editCount !== undefined) setEditCount(data.editCount);
       } catch {}
     }
     check();
     const interval = setInterval(check, 5000);
     return () => { active = false; clearInterval(interval); };
-  }, [projectId]);
+  }, [projectId, mounted]);
 
   async function startContainer() {
     setLoading(true);
@@ -93,67 +104,91 @@ export function ContainerControls({
     setLoading(false);
   }
 
-  if (isRunning && editorUrl) {
-    return (
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="h-8 w-8 rounded-lg bg-success/10 flex items-center justify-center">
-            <div className="h-2 w-2 rounded-full bg-success" />
+  function StatusRow() {
+    if (isRunning && editorUrl) {
+      return (
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="h-8 w-8 rounded-lg bg-success/10 flex items-center justify-center">
+              <div className="h-2 w-2 rounded-full bg-success" />
+            </div>
+            <div>
+              <p className="text-xs font-medium">Editor is running</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">{editorUrl}</p>
+            </div>
           </div>
-          <div>
-            <p className="text-xs font-medium">Editor is running</p>
-            <p className="text-[10px] text-muted-foreground mt-0.5">{editorUrl}</p>
+          <div className="flex items-center gap-2">
+            <a
+              href={editorUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-md text-xs font-semibold hover:opacity-90 transition-opacity"
+            >
+              <ExternalLink className="h-3 w-3" />
+              Open Editor
+            </a>
+            <button
+              onClick={stopContainer}
+              disabled={loading}
+              className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+            >
+              <Square className="h-3 w-3" />
+              Stop
+            </button>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <a
-            href={editorUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-md text-xs font-semibold hover:opacity-90 transition-opacity"
-          >
-            <ExternalLink className="h-3 w-3" />
-            Open Editor
-          </a>
+      );
+    }
+
+    if (isStarting) {
+      return (
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="h-8 w-8 rounded-lg bg-yellow-400/10 flex items-center justify-center">
+              <Loader2 className="h-3.5 w-3.5 text-yellow-400 animate-spin" />
+            </div>
+            <div>
+              <p className="text-xs font-medium">Starting editor...</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">Cloning repo and installing dependencies</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (containerStatus === "ERROR") {
+      return (
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="h-8 w-8 rounded-lg bg-destructive/10 flex items-center justify-center">
+              <div className="h-2 w-2 rounded-full bg-destructive" />
+            </div>
+            <div>
+              <p className="text-xs font-medium">Something went wrong</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">Try starting the editor again</p>
+            </div>
+          </div>
           <button
-            onClick={stopContainer}
+            onClick={startContainer}
             disabled={loading}
-            className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+            className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-md text-xs font-semibold hover:opacity-90 transition-opacity disabled:opacity-50"
           >
-            <Square className="h-3 w-3" />
-            Stop
+            <Play className="h-3 w-3" />
+            Retry
           </button>
         </div>
-      </div>
-    );
-  }
+      );
+    }
 
-  if (isStarting) {
     return (
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="h-8 w-8 rounded-lg bg-yellow-400/10 flex items-center justify-center">
-            <Loader2 className="h-3.5 w-3.5 text-yellow-400 animate-spin" />
+          <div className="h-8 w-8 rounded-lg bg-secondary flex items-center justify-center">
+            <div className="h-2 w-2 rounded-full bg-muted-foreground/40" />
           </div>
           <div>
-            <p className="text-xs font-medium">Starting editor...</p>
-            <p className="text-[10px] text-muted-foreground mt-0.5">Cloning repo and installing dependencies</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (containerStatus === "ERROR") {
-    return (
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="h-8 w-8 rounded-lg bg-destructive/10 flex items-center justify-center">
-            <div className="h-2 w-2 rounded-full bg-destructive" />
-          </div>
-          <div>
-            <p className="text-xs font-medium">Something went wrong</p>
-            <p className="text-[10px] text-muted-foreground mt-0.5">Try starting the editor again</p>
+            <p className="text-xs font-medium">Editor is stopped</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">Start the editor to begin making changes</p>
           </div>
         </div>
         <button
@@ -162,32 +197,21 @@ export function ContainerControls({
           className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-md text-xs font-semibold hover:opacity-90 transition-opacity disabled:opacity-50"
         >
           <Play className="h-3 w-3" />
-          Retry
+          Start Editor
         </button>
       </div>
     );
   }
 
-  // Stopped
   return (
-    <div className="flex items-center justify-between">
-      <div className="flex items-center gap-3">
-        <div className="h-8 w-8 rounded-lg bg-secondary flex items-center justify-center">
-          <div className="h-2 w-2 rounded-full bg-muted-foreground/40" />
+    <div className="space-y-4">
+      <StatusRow />
+      {editCount > 0 && (
+        <div className="pt-4 border-t border-border flex items-center gap-2 text-[10px] text-muted-foreground">
+          <span className="font-bold text-foreground text-xs">{editCount}</span>
+          edit{editCount !== 1 ? 's' : ''} made
         </div>
-        <div>
-          <p className="text-xs font-medium">Editor is stopped</p>
-          <p className="text-[10px] text-muted-foreground mt-0.5">Start the editor to begin making changes</p>
-        </div>
-      </div>
-      <button
-        onClick={startContainer}
-        disabled={loading}
-        className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-md text-xs font-semibold hover:opacity-90 transition-opacity disabled:opacity-50"
-      >
-        <Play className="h-3 w-3" />
-        Start Editor
-      </button>
+      )}
     </div>
   );
 }
