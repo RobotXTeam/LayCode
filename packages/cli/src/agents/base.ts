@@ -3,6 +3,9 @@ import type { PendingEditRequest } from '../server/edit-queue.js';
 
 export type AgentName = 'claude' | 'codex' | 'pi-mono';
 
+// Agents shown to CLI users (pi-mono is internal/hosted only)
+export const PUBLIC_AGENTS: AgentName[] = ['claude', 'codex'];
+
 export interface Agent {
   readonly name: AgentName;
   readonly displayName: string;

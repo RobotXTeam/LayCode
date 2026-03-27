@@ -1,15 +1,19 @@
 import type { Agent, AgentName, AgentOptions, AgentCheckResult } from './base.js';
+import { PUBLIC_AGENTS } from './base.js';
 import { ClaudeAgent, checkClaude } from './claude.js';
 import { CodexAgent, checkCodex } from './codex.js';
 import { PiMonoAgent, checkPiMono } from './pi-mono.js';
 
 export type { Agent, AgentName, AgentOptions };
 
-export const AGENT_LIST: { name: AgentName; displayName: string }[] = [
+const ALL_AGENTS: { name: AgentName; displayName: string }[] = [
   { name: 'claude', displayName: 'Claude Code' },
   { name: 'codex', displayName: 'Codex CLI' },
   { name: 'pi-mono', displayName: 'Pi Mono' },
 ];
+
+// Public agents shown in CLI picker and help text
+export const AGENT_LIST = ALL_AGENTS.filter(a => PUBLIC_AGENTS.includes(a.name));
 
 const AGENTS: Record<AgentName, {
   create: (opts: AgentOptions) => Agent;
@@ -39,15 +43,9 @@ const AGENTS: Record<AgentName, {
     create: (opts) => new PiMonoAgent(opts),
     check: checkPiMono,
     installHint: 'Bundled — just configure an LLM provider API key',
-    authHint: `  Set any supported LLM provider key:
+    authHint: `  Set your OpenRouter API key:
 
-    export ANTHROPIC_API_KEY=<key>    # Anthropic
-    export OPENAI_API_KEY=<key>       # OpenAI
-    export GOOGLE_API_KEY=<key>       # Google
-    export GROQ_API_KEY=<key>         # Groq
-    export OPENROUTER_API_KEY=<key>   # OpenRouter
-
-    Or run: pi login`,
+    export OPENROUTER_API_KEY=<key>`,
   },
 };
 

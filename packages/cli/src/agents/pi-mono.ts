@@ -2,6 +2,9 @@ import type { Agent, AgentOptions, AgentCheckResult } from './base.js';
 import type { PendingEditRequest } from '../server/edit-queue.js';
 import { buildPrompt } from './prompt.js';
 
+const MODEL_PROVIDER = 'openrouter';
+const MODEL_NAME = 'anthropic/claude-sonnet-4.6';
+
 export class PiMonoAgent implements Agent {
   readonly name = 'pi-mono' as const;
   readonly displayName = 'Pi Mono';
@@ -15,13 +18,16 @@ export class PiMonoAgent implements Agent {
     const prompt = buildPrompt(request);
 
     try {
-      // Dynamic import to avoid loading pi-mono at startup
       const { createAgentSession, codingTools } = await import('@mariozechner/pi-coding-agent');
       const { runPrintMode } = await import('@mariozechner/pi-coding-agent');
+      const { getModel } = await import('@mariozechner/pi-ai');
+
+      const model = getModel(MODEL_PROVIDER, MODEL_NAME);
 
       const { session } = await createAgentSession({
         cwd: this.projectRoot,
         tools: codingTools,
+        model,
       });
 
       const exitCode = await runPrintMode(session, {
@@ -41,12 +47,6 @@ export class PiMonoAgent implements Agent {
 }
 
 const SUPPORTED_PROVIDERS = [
-  { env: 'ANTHROPIC_API_KEY', name: 'Anthropic' },
-  { env: 'OPENAI_API_KEY', name: 'OpenAI' },
-  { env: 'GOOGLE_API_KEY', name: 'Google' },
-  { env: 'MISTRAL_API_KEY', name: 'Mistral' },
-  { env: 'GROQ_API_KEY', name: 'Groq' },
-  { env: 'XAI_API_KEY', name: 'xAI' },
   { env: 'OPENROUTER_API_KEY', name: 'OpenRouter' },
   { env: 'LAYRR_API_KEY', name: 'Layrr (hosted)' },
 ];
