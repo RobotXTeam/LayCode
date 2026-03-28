@@ -4,14 +4,15 @@ import { join } from 'path';
 import { createServer } from 'net';
 import { randomUUID } from 'crypto';
 
+const INCUS_MODE = process.env.LAYRR_MODE === 'incus';
 const DOCKER_MODE = process.env.LAYRR_MODE === 'docker';
-const DOCKER_IMAGE = process.env.LAYRR_DOCKER_IMAGE || 'layrr-container';
 const WORKSPACE_DIR = process.env.WORKSPACE_DIR || join(process.env.HOME || '/tmp', '.layrr', 'workspaces');
+const INCUS_IMAGE = process.env.LAYRR_INCUS_IMAGE || 'layrr-workspace';
 
 const DEV_PORT_START = 5100;
 const DEV_PORT_END = 5199;
 const PROXY_PORT_START = 6100;
-const PROXY_PORT_END = 6199;
+const PROXY_PORT_END = 6299;
 
 export interface ProjectProcess {
   id: string;
@@ -27,11 +28,17 @@ export interface ProjectProcess {
   workDir: string;
   accessToken: string;
   slug?: string;
+  userId?: string;
+  internalDevPort?: number;
+  internalProxyPort?: number;
 }
 
 const projects = new Map<string, ProjectProcess>();
 const usedDevPorts = new Set<number>();
 const usedProxyPorts = new Set<number>();
+
+// Track internal port allocation per container
+const containerInternalPorts = new Map<string, Set<number>>();
 
 // ── Shared utilities ──
 
@@ -118,125 +125,253 @@ function killProcess(proc: ChildProcess | null) {
   }, 5000);
 }
 
-// ── Docker helpers ──
+// ── Incus helpers ──
 
-function dockerContainerName(id: string): string {
-  return `layrr-${id}`;
+function incusContainerName(userId: string): string {
+  return `layrr-${userId}`;
 }
 
-function dockerExec(id: string, cmd: string): string {
-  return execSync(`docker exec ${dockerContainerName(id)} sh -c "${cmd.replace(/"/g, '\\"')}"`, {
+function incusExec(containerName: string, cmd: string, timeout = 120000): string {
+  return execSync(`incus exec ${containerName} -- sh -c "${cmd.replace(/"/g, '\\"')}"`, {
     encoding: 'utf-8',
-    timeout: 30000,
+    timeout,
   }).trim();
 }
 
-function dockerIsRunning(id: string): boolean {
+function incusContainerExists(containerName: string): boolean {
   try {
-    const status = execSync(`docker inspect --format='{{.State.Status}}' ${dockerContainerName(id)} 2>/dev/null`, {
-      encoding: 'utf-8',
-    }).trim();
-    return status === 'running';
+    execSync(`incus info ${containerName}`, { stdio: 'pipe' });
+    return true;
   } catch {
     return false;
   }
 }
 
-function dockerStop(id: string) {
-  const name = dockerContainerName(id);
-  try { execSync(`docker stop ${name} 2>/dev/null`, { stdio: 'pipe', timeout: 15000 }); } catch {}
-  try { execSync(`docker rm ${name} 2>/dev/null`, { stdio: 'pipe' }); } catch {}
+function incusContainerRunning(containerName: string): boolean {
+  try {
+    const info = execSync(`incus info ${containerName} --format=json`, { encoding: 'utf-8' });
+    const data = JSON.parse(info);
+    return data.status === 'Running';
+  } catch {
+    return false;
+  }
+}
+
+function ensureUserContainer(userId: string): string {
+  const containerName = incusContainerName(userId);
+
+  if (incusContainerExists(containerName)) {
+    if (!incusContainerRunning(containerName)) {
+      console.log(`[incus] Starting existing container ${containerName}`);
+      execSync(`incus start ${containerName}`, { stdio: 'pipe' });
+      // Wait for container to be ready
+      execSync(`incus exec ${containerName} -- true`, { stdio: 'pipe', timeout: 30000 });
+    }
+    return containerName;
+  }
+
+  console.log(`[incus] Creating container ${containerName}`);
+  execSync(`incus launch ${INCUS_IMAGE} ${containerName} --config limits.cpu=2 --config limits.memory=1GiB`, { stdio: 'pipe' });
+
+  // Wait for container to be ready
+  for (let i = 0; i < 30; i++) {
+    try {
+      execSync(`incus exec ${containerName} -- true`, { stdio: 'pipe', timeout: 5000 });
+      break;
+    } catch {
+      execSync('sleep 1', { stdio: 'pipe' });
+    }
+  }
+
+  // Setup
+  incusExec(containerName, 'mkdir -p /workspace /opt/layrr');
+
+  // Copy layrr CLI into container
+  const cliDist = join(process.cwd(), '..', 'cli', 'dist');
+  const cliPkg = join(process.cwd(), '..', 'cli', 'package.json');
+  execSync(`incus file push -r ${cliDist} ${containerName}/opt/layrr/`, { stdio: 'pipe' });
+  execSync(`incus file push ${cliPkg} ${containerName}/opt/layrr/`, { stdio: 'pipe' });
+  incusExec(containerName, 'cd /opt/layrr && npm install --omit=dev 2>/dev/null', 120000);
+
+  console.log(`[incus] Container ${containerName} ready`);
+  return containerName;
+}
+
+function allocateInternalPort(containerName: string): number {
+  if (!containerInternalPorts.has(containerName)) {
+    containerInternalPorts.set(containerName, new Set());
+  }
+  const used = containerInternalPorts.get(containerName)!;
+  for (let port = 4001; port <= 4050; port++) {
+    if (!used.has(port)) {
+      used.add(port);
+      return port;
+    }
+  }
+  throw new Error('No available internal ports');
+}
+
+function releaseInternalPort(containerName: string, port: number) {
+  containerInternalPorts.get(containerName)?.delete(port);
+}
+
+function getDevCommandStr(framework: string, port: number): string {
+  switch (framework) {
+    case 'nextjs': return `npx next dev -p ${port} -H 0.0.0.0`;
+    case 'nuxt': return `npx nuxt dev --port ${port} --host 0.0.0.0`;
+    case 'astro': return `npx astro dev --port ${port} --host 0.0.0.0`;
+    case 'sveltekit':
+    case 'vite':
+    case 'vue': return `npx vite --port ${port} --host 0.0.0.0`;
+    default: return `npx next dev -p ${port} -H 0.0.0.0`;
+  }
 }
 
 // ── startProject ──
 
-export async function startProject(id: string, githubRepo: string, branch: string, githubToken: string, gitUsername?: string, gitEmail?: string, sharePassword?: string, slug?: string): Promise<ProjectProcess> {
+export async function startProject(id: string, githubRepo: string, branch: string, githubToken: string, gitUsername?: string, gitEmail?: string, sharePassword?: string, slug?: string, userId?: string): Promise<ProjectProcess> {
   const existing = projects.get(id);
   if (existing && existing.status === 'running') return existing;
 
   if (existing) {
-    releasePort(existing.devPort, usedDevPorts);
-    releasePort(existing.proxyPort, usedProxyPorts);
+    if (existing.proxyPort) releasePort(existing.proxyPort, usedProxyPorts);
+    if (existing.devPort) releasePort(existing.devPort, usedDevPorts);
   }
 
-  if (DOCKER_MODE) {
-    return startProjectDocker(id, githubRepo, branch, githubToken, gitUsername, gitEmail, sharePassword, slug);
+  if (INCUS_MODE && userId) {
+    return startProjectIncus(id, githubRepo, branch, githubToken, gitUsername, gitEmail, sharePassword, slug, userId);
   }
   return startProjectLocal(id, githubRepo, branch, githubToken, gitUsername, gitEmail, sharePassword, slug);
 }
 
-async function startProjectDocker(id: string, githubRepo: string, branch: string, githubToken: string, gitUsername?: string, gitEmail?: string, sharePassword?: string, slug?: string): Promise<ProjectProcess> {
-  const proxyPort = await allocatePort(PROXY_PORT_START, PROXY_PORT_END, usedProxyPorts);
+async function startProjectIncus(id: string, githubRepo: string, branch: string, githubToken: string, gitUsername?: string, gitEmail?: string, sharePassword?: string, slug?: string, userId?: string): Promise<ProjectProcess> {
+  const hostPort = await allocatePort(PROXY_PORT_START, PROXY_PORT_END, usedProxyPorts);
   const accessToken = randomUUID();
-  const workDir = join(WORKSPACE_DIR, id);
+  const containerName = ensureUserContainer(userId!);
+  const internalProxyPort = allocateInternalPort(containerName);
+  const internalDevPort = internalProxyPort + 1000; // dev=5001 for proxy=4001, etc.
+  const workDir = `/workspace/${id}`;
 
   const project: ProjectProcess = {
     id, githubRepo, branch,
     framework: null,
     devProcess: null, proxyProcess: null,
-    devPort: 0, proxyPort,
+    devPort: 0, proxyPort: hostPort,
     status: 'starting',
     logs: [],
     workDir,
     accessToken,
     slug,
+    userId,
+    internalDevPort,
+    internalProxyPort,
   };
   projects.set(id, project);
 
   try {
-    // Stop existing container if any
-    dockerStop(id);
-
-    const containerName = dockerContainerName(id);
-    const envArgs: string[] = [];
-
-    const addEnv = (key: string, value: string | undefined) => {
-      if (value) envArgs.push('-e', `${key}=${value}`);
-    };
-
-    addEnv('GITHUB_REPO', githubRepo);
-    addEnv('GITHUB_BRANCH', branch);
-    addEnv('GITHUB_TOKEN', githubToken);
-    addEnv('GIT_USERNAME', gitUsername);
-    addEnv('GIT_EMAIL', gitEmail);
-    addEnv('LAYRR_ACCESS_TOKEN', accessToken);
-    addEnv('LAYRR_SHARE_PASSWORD', sharePassword);
-    addEnv('LAYRR_AGENT', process.env.LAYRR_AGENT || 'pi-mono');
-    addEnv('OPENROUTER_API_KEY', process.env.OPENROUTER_API_KEY);
-
-    // Mount workspace for persistence across restarts
-    mkdirSync(workDir, { recursive: true });
-
-    const args = [
-      'run', '-d',
-      '--name', containerName,
-      '--cpus=1', '--memory=1g',
-      '-p', `${proxyPort}:4567`,
-      '-v', `${workDir}:/workspace/repo`,
-      ...envArgs,
-      DOCKER_IMAGE,
-    ];
-
-    addLog(project, `Starting Docker container on port ${proxyPort}...`);
-    execSync(`docker ${args.join(' ')}`, { stdio: 'pipe' });
-
-    // Wait for container to be healthy
-    addLog(project, 'Waiting for container...');
-    await waitForPort(proxyPort, 180000);
-
-    // Detect framework from workspace
+    // Check if workspace exists, clone if not
     try {
-      project.framework = detectFramework(workDir);
-    } catch {}
+      incusExec(containerName, `test -d ${workDir}/.git`);
+      addLog(project, 'Workspace exists, reusing...');
+    } catch {
+      if (githubRepo && githubToken) {
+        addLog(project, `Cloning ${githubRepo}...`);
+        incusExec(containerName, `git clone --depth 1 --branch ${branch} https://x-access-token:${githubToken}@github.com/${githubRepo}.git ${workDir}`, 120000);
+      } else {
+        throw new Error('No workspace found and no GitHub repo to clone');
+      }
+    }
+
+    // Git config
+    const email = gitEmail || 'layrr@layrr.dev';
+    const name = gitUsername || 'Layrr';
+    incusExec(containerName, `cd ${workDir} && git config user.email '${email}' && git config user.name '${name}'`);
+
+    // Detect framework
+    try {
+      const pkgJson = incusExec(containerName, `cat ${workDir}/package.json`);
+      const pkg = JSON.parse(pkgJson);
+      const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+      if (deps['next']) project.framework = 'nextjs';
+      else if (deps['astro']) project.framework = 'astro';
+      else if (deps['nuxt']) project.framework = 'nuxt';
+      else if (deps['vite']) project.framework = 'vite';
+      else if (deps['@sveltejs/kit']) project.framework = 'sveltekit';
+      else if (deps['vue']) project.framework = 'vue';
+      else if (deps['react']) project.framework = 'react';
+      else project.framework = 'unknown';
+    } catch {
+      project.framework = 'unknown';
+    }
+
+    // Detect package manager
+    let pm = 'npm';
+    try {
+      incusExec(containerName, `test -f ${workDir}/pnpm-lock.yaml`);
+      pm = 'pnpm';
+    } catch {
+      try { incusExec(containerName, `test -f ${workDir}/yarn.lock`); pm = 'yarn'; } catch {}
+    }
+
+    addLog(project, `Framework: ${project.framework}, PM: ${pm}`);
+
+    // Install dependencies
+    addLog(project, 'Installing dependencies...');
+    incusExec(containerName, `cd ${workDir} && CI=true ${pm} install`, 300000);
+    addLog(project, 'Dependencies installed');
+
+    // Start dev server in background
+    const devCmd = getDevCommandStr(project.framework || 'unknown', internalDevPort);
+    addLog(project, `Starting dev server: ${devCmd}`);
+    incusExec(containerName, `cd ${workDir} && nohup sh -c '${devCmd}' > /tmp/dev-${id}.log 2>&1 & echo $! > ${workDir}/.layrr-dev.pid`);
+
+    // Wait for dev server
+    addLog(project, `Waiting for dev server on internal port ${internalDevPort}...`);
+    for (let i = 0; i < 120; i++) {
+      try {
+        incusExec(containerName, `curl -sf http://localhost:${internalDevPort} > /dev/null`, 5000);
+        break;
+      } catch {
+        if (i === 119) throw new Error('Dev server timed out');
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    }
+    addLog(project, 'Dev server ready');
+
+    // Start layrr proxy in background
+    const agent = process.env.LAYRR_AGENT || 'pi-mono';
+    const proxyEnvVars = `LAYRR_ACCESS_TOKEN=${accessToken}${sharePassword ? ` LAYRR_SHARE_PASSWORD=${sharePassword}` : ''}${process.env.OPENROUTER_API_KEY ? ` OPENROUTER_API_KEY=${process.env.OPENROUTER_API_KEY}` : ''}`;
+    addLog(project, `Starting proxy on internal port ${internalProxyPort}...`);
+    incusExec(containerName, `cd ${workDir} && nohup sh -c '${proxyEnvVars} node /opt/layrr/dist/cli.js --port ${internalDevPort} --proxy-port ${internalProxyPort} --no-open --agent ${agent}' > /tmp/proxy-${id}.log 2>&1 & echo $! > ${workDir}/.layrr-proxy.pid`);
+
+    // Wait for proxy
+    for (let i = 0; i < 30; i++) {
+      try {
+        incusExec(containerName, `curl -sf http://localhost:${internalProxyPort} > /dev/null`, 5000);
+        break;
+      } catch {
+        if (i === 29) throw new Error('Proxy timed out');
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    }
+
+    // Add port forward: host port → container proxy port
+    const deviceName = `proj-${id.slice(0, 8)}`;
+    execSync(`incus config device add ${containerName} ${deviceName} proxy listen=tcp:0.0.0.0:${hostPort} connect=tcp:127.0.0.1:${internalProxyPort}`, { stdio: 'pipe' });
 
     project.status = 'running';
-    addLog(project, `Ready! Proxy: ${proxyPort}`);
+    addLog(project, `Ready! Host port: ${hostPort}, Internal proxy: ${internalProxyPort}`);
     return project;
   } catch (err: any) {
     addLog(project, `Error: ${err.message}`);
     project.status = 'error';
-    dockerStop(id);
-    releasePort(proxyPort, usedProxyPorts);
+    // Cleanup
+    try {
+      const deviceName = `proj-${id.slice(0, 8)}`;
+      execSync(`incus config device remove ${containerName} ${deviceName}`, { stdio: 'pipe' });
+    } catch {}
+    releasePort(hostPort, usedProxyPorts);
+    releaseInternalPort(containerName, internalProxyPort);
     throw err;
   }
 }
@@ -267,10 +402,7 @@ async function startProjectLocal(id: string, githubRepo: string, branch: string,
       addLog(project, 'Workspace exists, reusing...');
     } else if (githubRepo && githubToken) {
       addLog(project, `Cloning ${githubRepo}...`);
-      execSync(
-        `git clone --depth 1 --branch ${branch} https://x-access-token:${githubToken}@github.com/${githubRepo}.git ${workDir}`,
-        { stdio: 'pipe' }
-      );
+      execSync(`git clone --depth 1 --branch ${branch} https://x-access-token:${githubToken}@github.com/${githubRepo}.git ${workDir}`, { stdio: 'pipe' });
     } else {
       throw new Error('No workspace found and no GitHub repo to clone. Try "Fresh Clone" or create a new project.');
     }
@@ -278,7 +410,6 @@ async function startProjectLocal(id: string, githubRepo: string, branch: string,
     const email = gitEmail || 'layrr@layrr.dev';
     const name = gitUsername || 'Layrr';
     execSync(`git config user.email "${email}" && git config user.name "${name}"`, { cwd: workDir, stdio: 'pipe' });
-    addLog(project, `Git identity: ${name} <${email}>`);
 
     const pm = detectPackageManager(workDir);
     project.framework = detectFramework(workDir);
@@ -296,15 +427,10 @@ async function startProjectLocal(id: string, githubRepo: string, branch: string,
       env: { ...process.env, PORT: String(devPort), HOST: '0.0.0.0' },
       detached: true,
     });
-
     project.devProcess.stdout?.on('data', (d: Buffer) => addLog(project, d.toString().trim()));
     project.devProcess.stderr?.on('data', (d: Buffer) => addLog(project, d.toString().trim()));
     project.devProcess.on('exit', (code) => {
-      addLog(project, `Dev server exited with code ${code}`);
-      if (project.status === 'running') {
-        project.status = 'error';
-        releasePort(devPort, usedDevPorts);
-      }
+      if (project.status === 'running') { project.status = 'error'; releasePort(devPort, usedDevPorts); }
     });
 
     addLog(project, `Waiting for dev server on port ${devPort}...`);
@@ -312,35 +438,22 @@ async function startProjectLocal(id: string, githubRepo: string, branch: string,
     addLog(project, 'Dev server ready');
 
     const layrCli = join(process.cwd(), '..', 'cli', 'dist', 'cli.js');
-    addLog(project, `Starting layrr proxy on port ${proxyPort}...`);
     const agent = process.env.LAYRR_AGENT || 'pi-mono';
-    const proxyEnv: Record<string, string> = {
-      ...process.env as Record<string, string>,
-      LAYRR_ACCESS_TOKEN: accessToken,
-    };
+    const proxyEnv: Record<string, string> = { ...process.env as Record<string, string>, LAYRR_ACCESS_TOKEN: accessToken };
     if (sharePassword) proxyEnv.LAYRR_SHARE_PASSWORD = sharePassword;
 
     project.proxyProcess = spawn('node', [layrCli, '--port', String(devPort), '--proxy-port', String(proxyPort), '--no-open', '--agent', agent], {
-      cwd: workDir,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: proxyEnv,
-      detached: true,
+      cwd: workDir, stdio: ['ignore', 'pipe', 'pipe'], env: proxyEnv, detached: true,
     });
-
     project.proxyProcess.stdout?.on('data', (d: Buffer) => addLog(project, `[proxy] ${d.toString().trim()}`));
     project.proxyProcess.stderr?.on('data', (d: Buffer) => addLog(project, `[proxy] ${d.toString().trim()}`));
     project.proxyProcess.on('exit', (code) => {
-      addLog(project, `Proxy exited with code ${code}`);
-      if (project.status === 'running') {
-        project.status = 'error';
-        releasePort(proxyPort, usedProxyPorts);
-      }
+      if (project.status === 'running') { project.status = 'error'; releasePort(proxyPort, usedProxyPorts); }
     });
 
     await waitForPort(proxyPort, 30000);
     project.status = 'running';
     addLog(project, `Ready! Dev: ${devPort}, Proxy: ${proxyPort}`);
-
     return project;
   } catch (err: any) {
     addLog(project, `Error: ${err.message}`);
@@ -357,91 +470,102 @@ async function startProjectLocal(id: string, githubRepo: string, branch: string,
 
 // ── createFromTemplate ──
 
-export async function createFromTemplate(id: string, name: string, prompt: string, gitUsername?: string, gitEmail?: string, sharePassword?: string, slug?: string): Promise<ProjectProcess> {
+export async function createFromTemplate(id: string, name: string, prompt: string, gitUsername?: string, gitEmail?: string, sharePassword?: string, slug?: string, userId?: string): Promise<ProjectProcess> {
   const existing = projects.get(id);
   if (existing && existing.status === 'running') return existing;
   if (existing) {
-    releasePort(existing.devPort, usedDevPorts);
-    releasePort(existing.proxyPort, usedProxyPorts);
+    if (existing.proxyPort) releasePort(existing.proxyPort, usedProxyPorts);
+    if (existing.devPort) releasePort(existing.devPort, usedDevPorts);
   }
 
-  if (DOCKER_MODE) {
-    return createFromTemplateDocker(id, name, prompt, gitUsername, gitEmail, sharePassword, slug);
+  if (INCUS_MODE && userId) {
+    return createFromTemplateIncus(id, name, prompt, gitUsername, gitEmail, sharePassword, slug, userId);
   }
   return createFromTemplateLocal(id, name, prompt, gitUsername, gitEmail, sharePassword, slug);
 }
 
-async function createFromTemplateDocker(id: string, name: string, prompt: string, gitUsername?: string, gitEmail?: string, sharePassword?: string, slug?: string): Promise<ProjectProcess> {
-  const proxyPort = await allocatePort(PROXY_PORT_START, PROXY_PORT_END, usedProxyPorts);
-  const workDir = join(WORKSPACE_DIR, id);
+async function createFromTemplateIncus(id: string, name: string, prompt: string, gitUsername?: string, gitEmail?: string, sharePassword?: string, slug?: string, userId?: string): Promise<ProjectProcess> {
+  const hostPort = await allocatePort(PROXY_PORT_START, PROXY_PORT_END, usedProxyPorts);
+  const accessToken = randomUUID();
+  const containerName = ensureUserContainer(userId!);
+  const internalProxyPort = allocateInternalPort(containerName);
+  const internalDevPort = internalProxyPort + 1000;
+  const workDir = `/workspace/${id}`;
   const templateDir = join(process.cwd(), 'templates', 'nextjs-shadcn');
 
-  const accessToken = randomUUID();
   const project: ProjectProcess = {
     id, githubRepo: '', branch: 'main',
     framework: 'nextjs',
     devProcess: null, proxyProcess: null,
-    devPort: 0, proxyPort,
+    devPort: 0, proxyPort: hostPort,
     status: 'starting',
     logs: [],
     workDir,
     accessToken,
     slug,
+    userId,
+    internalDevPort,
+    internalProxyPort,
   };
   projects.set(id, project);
 
   try {
-    mkdirSync(WORKSPACE_DIR, { recursive: true });
-
-    // Prepare workspace with template
+    // Copy template into container
     addLog(project, `Creating ${name} from template...`);
-    execSync(`cp -r "${templateDir}" "${workDir}"`, { stdio: 'pipe' });
+    incusExec(containerName, `mkdir -p ${workDir}`);
+    execSync(`incus file push -r ${templateDir}/ ${containerName}${workDir}/`, { stdio: 'pipe' });
 
     // Init git
-    execSync('git init', { cwd: workDir, stdio: 'pipe' });
     const email = gitEmail || 'layrr@layrr.dev';
     const uname = gitUsername || 'Layrr';
-    execSync(`git config user.email "${email}" && git config user.name "${uname}"`, { cwd: workDir, stdio: 'pipe' });
-    execSync('git add -A && git commit -m "initial template"', { cwd: workDir, stdio: 'pipe' });
+    incusExec(containerName, `cd ${workDir} && git init && git config user.email '${email}' && git config user.name '${uname}' && git add -A && git commit -m 'initial template'`);
 
-    // Stop existing container if any
-    dockerStop(id);
+    // Install deps
+    addLog(project, 'Installing dependencies...');
+    incusExec(containerName, `cd ${workDir} && CI=true pnpm install`, 300000);
+    addLog(project, 'Dependencies installed');
 
-    const containerName = dockerContainerName(id);
-    const envArgs: string[] = [];
-    const addEnv = (key: string, value: string | undefined) => {
-      if (value) envArgs.push('-e', `${key}=${value}`);
-    };
+    // Start dev server
+    const devCmd = getDevCommandStr('nextjs', internalDevPort);
+    addLog(project, `Starting dev server: ${devCmd}`);
+    incusExec(containerName, `cd ${workDir} && nohup sh -c '${devCmd}' > /tmp/dev-${id}.log 2>&1 & echo $! > ${workDir}/.layrr-dev.pid`);
 
-    addEnv('TEMPLATE_MODE', 'true');
-    addEnv('GIT_USERNAME', gitUsername);
-    addEnv('GIT_EMAIL', gitEmail);
-    addEnv('LAYRR_ACCESS_TOKEN', accessToken);
-    addEnv('LAYRR_SHARE_PASSWORD', sharePassword);
-    addEnv('LAYRR_AGENT', process.env.LAYRR_AGENT || 'pi-mono');
-    addEnv('OPENROUTER_API_KEY', process.env.OPENROUTER_API_KEY);
+    addLog(project, 'Waiting for dev server...');
+    for (let i = 0; i < 120; i++) {
+      try {
+        incusExec(containerName, `curl -sf http://localhost:${internalDevPort} > /dev/null`, 5000);
+        break;
+      } catch {
+        if (i === 119) throw new Error('Dev server timed out');
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    }
+    addLog(project, 'Dev server ready');
 
-    const args = [
-      'run', '-d',
-      '--name', containerName,
-      '--cpus=1', '--memory=1g',
-      '-p', `${proxyPort}:4567`,
-      '-v', `${workDir}:/workspace/repo`,
-      ...envArgs,
-      DOCKER_IMAGE,
-    ];
+    // Start proxy
+    const agent = process.env.LAYRR_AGENT || 'pi-mono';
+    const proxyEnvVars = `LAYRR_ACCESS_TOKEN=${accessToken}${sharePassword ? ` LAYRR_SHARE_PASSWORD=${sharePassword}` : ''}${process.env.OPENROUTER_API_KEY ? ` OPENROUTER_API_KEY=${process.env.OPENROUTER_API_KEY}` : ''}`;
+    incusExec(containerName, `cd ${workDir} && nohup sh -c '${proxyEnvVars} node /opt/layrr/dist/cli.js --port ${internalDevPort} --proxy-port ${internalProxyPort} --no-open --agent ${agent}' > /tmp/proxy-${id}.log 2>&1 & echo $! > ${workDir}/.layrr-proxy.pid`);
 
-    addLog(project, `Starting Docker container on port ${proxyPort}...`);
-    execSync(`docker ${args.join(' ')}`, { stdio: 'pipe' });
+    for (let i = 0; i < 30; i++) {
+      try {
+        incusExec(containerName, `curl -sf http://localhost:${internalProxyPort} > /dev/null`, 5000);
+        break;
+      } catch {
+        if (i === 29) throw new Error('Proxy timed out');
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    }
 
-    addLog(project, 'Waiting for container...');
-    await waitForPort(proxyPort, 180000);
+    // Add port forward
+    const deviceName = `proj-${id.slice(0, 8)}`;
+    execSync(`incus config device add ${containerName} ${deviceName} proxy listen=tcp:0.0.0.0:${hostPort} connect=tcp:127.0.0.1:${internalProxyPort}`, { stdio: 'pipe' });
 
     // Run initial prompt
     if (prompt) {
       addLog(project, 'Generating initial version...');
       try {
-        await sendEditViaProxy(proxyPort, prompt);
+        await sendEditViaProxy(hostPort, prompt);
         addLog(project, 'Initial version generated');
       } catch (err: any) {
         addLog(project, `Generation warning: ${err.message}`);
@@ -449,13 +573,17 @@ async function createFromTemplateDocker(id: string, name: string, prompt: string
     }
 
     project.status = 'running';
-    addLog(project, `Ready! Proxy: ${proxyPort}`);
+    addLog(project, `Ready! Host port: ${hostPort}`);
     return project;
   } catch (err: any) {
     addLog(project, `Error: ${err.message}`);
     project.status = 'error';
-    dockerStop(id);
-    releasePort(proxyPort, usedProxyPorts);
+    try {
+      const deviceName = `proj-${id.slice(0, 8)}`;
+      execSync(`incus config device remove ${containerName} ${deviceName}`, { stdio: 'pipe' });
+    } catch {}
+    releasePort(hostPort, usedProxyPorts);
+    releaseInternalPort(containerName, internalProxyPort);
     throw err;
   }
 }
@@ -468,24 +596,15 @@ async function createFromTemplateLocal(id: string, name: string, prompt: string,
 
   const accessToken = randomUUID();
   const project: ProjectProcess = {
-    id, githubRepo: '', branch: 'main',
-    framework: 'nextjs',
-    devProcess: null, proxyProcess: null,
-    devPort, proxyPort,
-    status: 'starting',
-    logs: [],
-    workDir,
-    accessToken,
-    slug,
+    id, githubRepo: '', branch: 'main', framework: 'nextjs',
+    devProcess: null, proxyProcess: null, devPort, proxyPort,
+    status: 'starting', logs: [], workDir, accessToken, slug,
   };
   projects.set(id, project);
 
   try {
     mkdirSync(WORKSPACE_DIR, { recursive: true });
-
-    addLog(project, `Creating ${name} from template...`);
     execSync(`cp -r "${templateDir}" "${workDir}"`, { stdio: 'pipe' });
-
     execSync('git init', { cwd: workDir, stdio: 'pipe' });
     const email = gitEmail || 'layrr@layrr.dev';
     const uname = gitUsername || 'Layrr';
@@ -494,57 +613,36 @@ async function createFromTemplateLocal(id: string, name: string, prompt: string,
 
     addLog(project, 'Installing dependencies...');
     execSync('pnpm install', { cwd: workDir, stdio: 'pipe', timeout: 120000 });
-    addLog(project, 'Dependencies installed');
 
     const devCmd = getDevCommand('nextjs', 'pnpm', devPort);
-    addLog(project, `Starting dev server on port ${devPort}...`);
     project.devProcess = spawn(devCmd.cmd, devCmd.args, {
-      cwd: workDir,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, PORT: String(devPort), HOST: '0.0.0.0' },
-      detached: true,
+      cwd: workDir, stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, PORT: String(devPort), HOST: '0.0.0.0' }, detached: true,
     });
     project.devProcess.stdout?.on('data', (d: Buffer) => addLog(project, d.toString().trim()));
     project.devProcess.stderr?.on('data', (d: Buffer) => addLog(project, d.toString().trim()));
-    project.devProcess.on('exit', (code: number | null) => {
-      if (project.status === 'running') { project.status = 'error'; releasePort(devPort, usedDevPorts); }
-    });
+    project.devProcess.on('exit', () => { if (project.status === 'running') { project.status = 'error'; releasePort(devPort, usedDevPorts); } });
 
-    addLog(project, 'Waiting for dev server...');
     await waitForPort(devPort, 120000);
-    addLog(project, 'Dev server ready');
 
     const layrCli = join(process.cwd(), '..', 'cli', 'dist', 'cli.js');
     const agent = process.env.LAYRR_AGENT || 'pi-mono';
-    addLog(project, `Starting layrr proxy on port ${proxyPort}...`);
-    const templateProxyEnv: Record<string, string> = {
-      ...process.env as Record<string, string>,
-      LAYRR_ACCESS_TOKEN: accessToken,
-    };
-    if (sharePassword) templateProxyEnv.LAYRR_SHARE_PASSWORD = sharePassword;
+    const proxyEnv: Record<string, string> = { ...process.env as Record<string, string>, LAYRR_ACCESS_TOKEN: accessToken };
+    if (sharePassword) proxyEnv.LAYRR_SHARE_PASSWORD = sharePassword;
 
     project.proxyProcess = spawn('node', [layrCli, '--port', String(devPort), '--proxy-port', String(proxyPort), '--no-open', '--agent', agent], {
-      cwd: workDir,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: templateProxyEnv,
-      detached: true,
+      cwd: workDir, stdio: ['ignore', 'pipe', 'pipe'], env: proxyEnv, detached: true,
     });
     project.proxyProcess.stdout?.on('data', (d: Buffer) => addLog(project, `[proxy] ${d.toString().trim()}`));
     project.proxyProcess.stderr?.on('data', (d: Buffer) => addLog(project, `[proxy] ${d.toString().trim()}`));
-    project.proxyProcess.on('exit', (code: number | null) => {
-      if (project.status === 'running') { project.status = 'error'; releasePort(proxyPort, usedProxyPorts); }
-    });
+    project.proxyProcess.on('exit', () => { if (project.status === 'running') { project.status = 'error'; releasePort(proxyPort, usedProxyPorts); } });
 
     await waitForPort(proxyPort, 30000);
 
     if (prompt) {
       addLog(project, 'Generating initial version...');
-      try {
-        await sendEditViaProxy(proxyPort, prompt);
-        addLog(project, 'Initial version generated');
-      } catch (err: any) {
-        addLog(project, `Generation warning: ${err.message}`);
-      }
+      try { await sendEditViaProxy(proxyPort, prompt); addLog(project, 'Initial version generated'); }
+      catch (err: any) { addLog(project, `Generation warning: ${err.message}`); }
     }
 
     project.status = 'running';
@@ -555,8 +653,6 @@ async function createFromTemplateLocal(id: string, name: string, prompt: string,
     project.status = 'error';
     killProcess(project.devProcess);
     killProcess(project.proxyProcess);
-    project.devProcess = null;
-    project.proxyProcess = null;
     releasePort(devPort, usedDevPorts);
     releasePort(proxyPort, usedProxyPorts);
     throw err;
@@ -566,21 +662,28 @@ async function createFromTemplateLocal(id: string, name: string, prompt: string,
 // ── stopProject ──
 
 export function stopProject(id: string): boolean {
-  if (DOCKER_MODE) {
-    dockerStop(id);
-    const project = projects.get(id);
-    if (project) {
-      releasePort(project.proxyPort, usedProxyPorts);
-      project.status = 'stopped';
-      addLog(project, 'Container stopped and removed');
-    }
-    return true;
-  }
-
   const project = projects.get(id);
   if (!project) return false;
 
-  addLog(project, 'Stopping...');
+  if (INCUS_MODE && project.userId) {
+    const containerName = incusContainerName(project.userId);
+    const workDir = `/workspace/${id}`;
+    try {
+      // Kill processes by PID
+      try { incusExec(containerName, `kill $(cat ${workDir}/.layrr-proxy.pid) 2>/dev/null`); } catch {}
+      try { incusExec(containerName, `kill $(cat ${workDir}/.layrr-dev.pid) 2>/dev/null`); } catch {}
+      // Remove port forward
+      const deviceName = `proj-${id.slice(0, 8)}`;
+      try { execSync(`incus config device remove ${containerName} ${deviceName}`, { stdio: 'pipe' }); } catch {}
+    } catch {}
+    if (project.internalProxyPort) releaseInternalPort(containerName, project.internalProxyPort);
+    releasePort(project.proxyPort, usedProxyPorts);
+    project.status = 'stopped';
+    addLog(project, 'Stopped');
+    return true;
+  }
+
+  // Local mode
   killProcess(project.proxyProcess);
   killProcess(project.devProcess);
   project.proxyProcess = null;
@@ -595,40 +698,39 @@ export function stopProject(id: string): boolean {
 // ── freshClone ──
 
 export function freshClone(id: string): boolean {
-  if (DOCKER_MODE) {
-    dockerStop(id);
-    const workDir = join(WORKSPACE_DIR, id);
+  const project = projects.get(id);
+
+  if (INCUS_MODE && project?.userId) {
+    const containerName = incusContainerName(project.userId);
     try {
-      execSync(`rm -rf "${workDir}"`, { stdio: 'pipe' });
+      incusExec(containerName, `rm -rf /workspace/${id}`);
+      addLog(project, 'Workspace deleted');
       return true;
     } catch { return false; }
   }
 
-  const project = projects.get(id);
   if (!project) return false;
   if (project.status === 'running') return false;
-
-  const workDir = project.workDir;
   try {
-    execSync(`rm -rf "${workDir}"`, { stdio: 'pipe' });
-    addLog(project, 'Workspace deleted — will fresh clone on next start');
+    execSync(`rm -rf "${project.workDir}"`, { stdio: 'pipe' });
+    addLog(project, 'Workspace deleted');
     return true;
-  } catch (err: any) {
-    addLog(project, `Fresh clone cleanup failed: ${err.message}`);
-    return false;
-  }
+  } catch { return false; }
 }
 
 // ── linkGithubRepo ──
 
 export function linkGithubRepo(id: string, githubRepo: string, githubToken: string): { success: boolean; message: string } {
-  if (DOCKER_MODE && dockerIsRunning(id)) {
+  const project = projects.get(id);
+
+  if (INCUS_MODE && project?.userId) {
+    const containerName = incusContainerName(project.userId);
+    const workDir = `/workspace/${id}`;
     try {
       const remoteUrl = `https://x-access-token:${githubToken}@github.com/${githubRepo}.git`;
-      dockerExec(id, `cd /workspace/repo && git remote add origin '${remoteUrl}' 2>/dev/null || git remote set-url origin '${remoteUrl}'`);
-      dockerExec(id, 'cd /workspace/repo && git push -u origin HEAD:main');
-      dockerExec(id, 'cd /workspace/repo && git fetch origin');
-      const project = projects.get(id);
+      incusExec(containerName, `cd ${workDir} && (git remote add origin '${remoteUrl}' 2>/dev/null || git remote set-url origin '${remoteUrl}')`);
+      incusExec(containerName, `cd ${workDir} && git push -u origin HEAD:main`);
+      incusExec(containerName, `cd ${workDir} && git fetch origin`);
       if (project) { project.githubRepo = githubRepo; project.branch = 'main'; }
       return { success: true, message: `Pushed to ${githubRepo}` };
     } catch (err: any) {
@@ -636,98 +738,63 @@ export function linkGithubRepo(id: string, githubRepo: string, githubToken: stri
     }
   }
 
-  // Local mode (or container not running — use workspace directly)
-  const workDir = join(WORKSPACE_DIR, id);
-  if (!existsSync(join(workDir, '.git'))) {
-    return { success: false, message: 'No workspace found' };
-  }
-
+  // Local mode
+  const workDir = project?.workDir || join(WORKSPACE_DIR, id);
+  if (!existsSync(join(workDir, '.git'))) return { success: false, message: 'No workspace found' };
   try {
     const remoteUrl = `https://x-access-token:${githubToken}@github.com/${githubRepo}.git`;
-    try {
-      execSync('git remote get-url origin', { cwd: workDir, stdio: 'pipe' });
-      execSync(`git remote set-url origin "${remoteUrl}"`, { cwd: workDir, stdio: 'pipe' });
-    } catch {
-      execSync(`git remote add origin "${remoteUrl}"`, { cwd: workDir, stdio: 'pipe' });
-    }
+    try { execSync('git remote get-url origin', { cwd: workDir, stdio: 'pipe' }); execSync(`git remote set-url origin "${remoteUrl}"`, { cwd: workDir, stdio: 'pipe' }); }
+    catch { execSync(`git remote add origin "${remoteUrl}"`, { cwd: workDir, stdio: 'pipe' }); }
     execSync('git push -u origin HEAD:main', { cwd: workDir, stdio: 'pipe' });
     execSync('git fetch origin', { cwd: workDir, stdio: 'pipe' });
-    const project = projects.get(id);
     if (project) { project.githubRepo = githubRepo; project.branch = 'main'; }
     return { success: true, message: `Pushed to ${githubRepo}` };
-  } catch (err: any) {
-    return { success: false, message: err.message || 'Failed to push' };
-  }
+  } catch (err: any) { return { success: false, message: err.message || 'Failed to push' }; }
 }
 
 // ── pushChanges ──
 
 export function pushChanges(id: string, targetBranch: string, githubToken: string, githubRepo?: string): { success: boolean; message: string } {
-  if (DOCKER_MODE && dockerIsRunning(id)) {
-    const repo = githubRepo || projects.get(id)?.githubRepo;
+  const project = projects.get(id);
+
+  if (INCUS_MODE && project?.userId) {
+    const containerName = incusContainerName(project.userId);
+    const workDir = `/workspace/${id}`;
+    const repo = githubRepo || project.githubRepo;
     if (!repo) return { success: false, message: 'No GitHub repo linked' };
     try {
       const remoteUrl = `https://x-access-token:${githubToken}@github.com/${repo}.git`;
-      dockerExec(id, `cd /workspace/repo && git remote set-url origin '${remoteUrl}' 2>/dev/null || git remote add origin '${remoteUrl}'`);
-      const log = dockerExec(id, `cd /workspace/repo && git log --oneline --grep='\\[layrr\\]' origin/${targetBranch}..HEAD 2>/dev/null || echo ""`);
+      incusExec(containerName, `cd ${workDir} && (git remote set-url origin '${remoteUrl}' 2>/dev/null || git remote add origin '${remoteUrl}')`);
+      const log = incusExec(containerName, `cd ${workDir} && git log --oneline --grep='\\[layrr\\]' origin/${targetBranch}..HEAD 2>/dev/null || echo ""`);
       if (!log) return { success: false, message: 'No layrr edits to push' };
       const commitCount = log.split('\n').filter(Boolean).length;
-      dockerExec(id, `cd /workspace/repo && git push origin HEAD:${targetBranch}`);
+      incusExec(containerName, `cd ${workDir} && git push origin HEAD:${targetBranch}`);
       return { success: true, message: `Pushed ${commitCount} edit(s) to ${targetBranch}` };
-    } catch (err: any) {
-      return { success: false, message: err.message || 'Push failed' };
-    }
+    } catch (err: any) { return { success: false, message: err.message || 'Push failed' }; }
   }
 
   // Local mode
-  const project = projects.get(id);
   const workDir = project?.workDir || join(WORKSPACE_DIR, id);
   const repo = githubRepo || project?.githubRepo;
-
-  if (!existsSync(join(workDir, '.git'))) {
-    return { success: false, message: 'No workspace found' };
-  }
-  if (!repo) {
-    return { success: false, message: 'No GitHub repo linked' };
-  }
-
+  if (!existsSync(join(workDir, '.git'))) return { success: false, message: 'No workspace found' };
+  if (!repo) return { success: false, message: 'No GitHub repo linked' };
   try {
     const remoteUrl = `https://x-access-token:${githubToken}@github.com/${repo}.git`;
-    try {
-      execSync(`git remote set-url origin "${remoteUrl}"`, { cwd: workDir, stdio: 'pipe' });
-    } catch {
-      execSync(`git remote add origin "${remoteUrl}"`, { cwd: workDir, stdio: 'pipe' });
-    }
-    const trackingBranch = `origin/${targetBranch}`;
-    const log = execSync(`git log --oneline --grep="\\[layrr\\]" ${trackingBranch}..HEAD 2>/dev/null || echo ""`, { cwd: workDir, encoding: 'utf-8' }).trim();
-    if (!log) {
-      return { success: false, message: 'No layrr edits to push' };
-    }
+    try { execSync(`git remote set-url origin "${remoteUrl}"`, { cwd: workDir, stdio: 'pipe' }); }
+    catch { execSync(`git remote add origin "${remoteUrl}"`, { cwd: workDir, stdio: 'pipe' }); }
+    const log = execSync(`git log --oneline --grep="\\[layrr\\]" origin/${targetBranch}..HEAD 2>/dev/null || echo ""`, { cwd: workDir, encoding: 'utf-8' }).trim();
+    if (!log) return { success: false, message: 'No layrr edits to push' };
     const commitCount = log.split('\n').filter(Boolean).length;
-    if (targetBranch === (project?.branch || 'main')) {
-      execSync(`git push origin HEAD:${targetBranch}`, { cwd: workDir, stdio: 'pipe' });
-    } else {
-      execSync(`git push origin HEAD:refs/heads/${targetBranch}`, { cwd: workDir, stdio: 'pipe' });
-    }
+    execSync(`git push origin HEAD:${targetBranch}`, { cwd: workDir, stdio: 'pipe' });
     if (project) addLog(project, `Pushed ${commitCount} edit(s) to ${targetBranch}`);
     return { success: true, message: `Pushed ${commitCount} edit(s) to ${targetBranch}` };
-  } catch (err: any) {
-    const msg = err.message || 'Push failed';
-    if (project) addLog(project, `Push failed: ${msg}`);
-    return { success: false, message: msg };
-  }
+  } catch (err: any) { return { success: false, message: err.message || 'Push failed' }; }
 }
 
 // ── getProject ──
 
 export function getProject(id: string): ProjectProcess & { editCount?: number } | undefined {
   const project = projects.get(id);
-
-  // In Docker mode, check if container is actually running
-  if (DOCKER_MODE && project && project.status === 'running' && !dockerIsRunning(id)) {
-    project.status = 'error';
-  }
-
   if (!project) return undefined;
   return { ...project, editCount: getEditCount(id) };
 }
@@ -742,9 +809,12 @@ export function getProjectBySlug(slug: string): ProjectProcess | undefined {
 // ── getEditCount / getEditHistory / getLogs ──
 
 export function getEditCount(id: string): number {
-  if (DOCKER_MODE && dockerIsRunning(id)) {
+  const project = projects.get(id);
+
+  if (INCUS_MODE && project?.userId) {
     try {
-      const log = dockerExec(id, "cd /workspace/repo && git log --oneline --grep='\\[layrr\\]' 2>/dev/null || echo ''");
+      const containerName = incusContainerName(project.userId);
+      const log = incusExec(containerName, `cd /workspace/${id} && git log --oneline --grep='\\[layrr\\]' 2>/dev/null || echo ""`);
       return log ? log.split('\n').filter(Boolean).length : 0;
     } catch { return 0; }
   }
@@ -752,9 +822,7 @@ export function getEditCount(id: string): number {
   const workDir = join(WORKSPACE_DIR, id);
   try {
     if (existsSync(join(workDir, '.git'))) {
-      const log = execSync('git log --oneline --grep="\\[layrr\\]" 2>/dev/null || echo ""', {
-        cwd: workDir, encoding: 'utf-8',
-      }).trim();
+      const log = execSync('git log --oneline --grep="\\[layrr\\]" 2>/dev/null || echo ""', { cwd: workDir, encoding: 'utf-8' }).trim();
       return log ? log.split('\n').filter(Boolean).length : 0;
     }
   } catch {}
@@ -766,9 +834,12 @@ export function getProjectLogs(id: string): string[] {
 }
 
 export function getEditHistory(id: string): Array<{ message: string; timeAgo: string; hash: string }> {
-  if (DOCKER_MODE && dockerIsRunning(id)) {
+  const project = projects.get(id);
+
+  if (INCUS_MODE && project?.userId) {
     try {
-      const log = dockerExec(id, "cd /workspace/repo && git log --grep='\\[layrr\\]' --format='%H|%s|%ar' -20 2>/dev/null || echo ''");
+      const containerName = incusContainerName(project.userId);
+      const log = incusExec(containerName, `cd /workspace/${id} && git log --grep='\\[layrr\\]' --format='%H|%s|%ar' -20 2>/dev/null || echo ""`);
       if (!log) return [];
       return log.split('\n').filter(Boolean).map(line => {
         const [hash, ...rest] = line.split('|');
@@ -782,10 +853,7 @@ export function getEditHistory(id: string): Array<{ message: string; timeAgo: st
   const workDir = join(WORKSPACE_DIR, id);
   if (!existsSync(join(workDir, '.git'))) return [];
   try {
-    const log = execSync(
-      'git log --grep="\\[layrr\\]" --format="%H|%s|%ar" -20 2>/dev/null || echo ""',
-      { cwd: workDir, encoding: 'utf-8' }
-    ).trim();
+    const log = execSync('git log --grep="\\[layrr\\]" --format="%H|%s|%ar" -20 2>/dev/null || echo ""', { cwd: workDir, encoding: 'utf-8' }).trim();
     if (!log) return [];
     return log.split('\n').filter(Boolean).map(line => {
       const [hash, ...rest] = line.split('|');
@@ -793,30 +861,14 @@ export function getEditHistory(id: string): Array<{ message: string; timeAgo: st
       const message = rest.join('|').replace('[layrr] ', '');
       return { hash, message, timeAgo };
     });
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
 
 // ── cleanup ──
 
 export async function cleanupOrphanProcesses() {
-  if (DOCKER_MODE) {
-    console.log('[layrr-server] Cleaning up orphan containers...');
-    try {
-      const containers = execSync('docker ps -a --filter "name=layrr-" --format "{{.Names}}" 2>/dev/null || echo ""', {
-        encoding: 'utf-8',
-      }).trim();
-      if (containers) {
-        const names = containers.split('\n').filter(Boolean);
-        for (const name of names) {
-          try { execSync(`docker rm -f ${name}`, { stdio: 'pipe' }); } catch {}
-        }
-        console.log(`[layrr-server] Removed ${names.length} orphan container(s)`);
-      } else {
-        console.log('[layrr-server] No orphan containers found');
-      }
-    } catch {}
+  if (INCUS_MODE) {
+    console.log('[layrr-server] Incus mode — containers persist, no cleanup needed');
     return;
   }
 
@@ -827,11 +879,7 @@ export async function cleanupOrphanProcesses() {
     if (inUse) {
       try {
         const pid = execSync(`lsof -ti :${port} 2>/dev/null || echo ""`, { encoding: 'utf-8' }).trim();
-        if (pid) {
-          pid.split('\n').forEach(p => {
-            try { process.kill(Number(p), 'SIGKILL'); killed++; } catch {}
-          });
-        }
+        if (pid) { pid.split('\n').forEach(p => { try { process.kill(Number(p), 'SIGKILL'); killed++; } catch {} }); }
       } catch {}
     }
   }
@@ -847,37 +895,19 @@ export async function cleanupOrphanProcesses() {
 
 async function sendEditViaProxy(proxyPort: number, prompt: string): Promise<void> {
   const WebSocket = (await import('ws')).default;
-
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://localhost:${proxyPort}/__layrr__/ws`);
     const timeout = setTimeout(() => { ws.close(); reject(new Error('Edit timed out')); }, 180000);
-
     ws.on('open', () => {
       const enhancedPrompt = `You are building a Next.js web application with Tailwind CSS and shadcn/ui components.\n\nThe user wants: ${prompt}\n\nEdit the files in this project to build what the user described. Focus on src/app/page.tsx as the main page. Use shadcn components where appropriate. Use lucide-react for icons and framer-motion for animations (both already installed). Make it look professional and modern.`;
-
-      ws.send(JSON.stringify({
-        type: 'edit-request',
-        selector: 'body',
-        tagName: 'body',
-        className: '',
-        textContent: '',
-        instruction: enhancedPrompt,
-        sourceInfo: { file: 'src/app/page.tsx', line: 1 },
-      }));
+      ws.send(JSON.stringify({ type: 'edit-request', selector: 'body', tagName: 'body', className: '', textContent: '', instruction: enhancedPrompt, sourceInfo: { file: 'src/app/page.tsx', line: 1 } }));
     });
-
     ws.on('message', (data: Buffer) => {
       try {
         const msg = JSON.parse(data.toString());
-        if (msg.type === 'edit-result') {
-          clearTimeout(timeout);
-          ws.close();
-          if (msg.success) resolve();
-          else reject(new Error(msg.message || 'Edit failed'));
-        }
+        if (msg.type === 'edit-result') { clearTimeout(timeout); ws.close(); if (msg.success) resolve(); else reject(new Error(msg.message || 'Edit failed')); }
       } catch {}
     });
-
     ws.on('error', (err: Error) => { clearTimeout(timeout); reject(err); });
   });
 }
@@ -885,10 +915,7 @@ async function sendEditViaProxy(proxyPort: number, prompt: string): Promise<void
 async function waitForPort(port: number, timeoutMs: number): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    try {
-      const res = await fetch(`http://localhost:${port}`).catch(() => null);
-      if (res) return;
-    } catch {}
+    try { const res = await fetch(`http://localhost:${port}`).catch(() => null); if (res) return; } catch {}
     await new Promise(r => setTimeout(r, 2000));
   }
   throw new Error(`Timeout waiting for port ${port}`);

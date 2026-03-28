@@ -9,34 +9,30 @@ cd /opt/layrr
 echo "=== Deploying Layrr ==="
 
 # Pull latest
-echo "[1/7] Pulling latest code..."
+echo "[1/6] Pulling latest code..."
 git pull
 
 # Install dependencies
-echo "[2/7] Installing dependencies..."
+echo "[2/6] Installing dependencies..."
 su - layrr -c "cd /opt/layrr && pnpm install"
 
 # Build all packages
-echo "[3/7] Building..."
+echo "[3/6] Building..."
 su - layrr -c "cd /opt/layrr && pnpm build"
 
-# Build Docker image
-echo "[4/7] Building Docker container image..."
-docker build -t layrr-container -f packages/container/Dockerfile .
-
 # Push DB schema
-echo "[5/7] Pushing database schema..."
+echo "[4/6] Pushing database schema..."
 su - layrr -c "cd /opt/layrr/packages/app && DATABASE_PATH=/var/lib/layrr/layrr.db npx drizzle-kit push"
 
 # Install systemd services
-echo "[6/7] Installing services..."
+echo "[5/6] Installing services..."
 cp deploy/layrr-server.service /etc/systemd/system/
 cp deploy/layrr-app.service /etc/systemd/system/
 cp deploy/caddy.service /etc/systemd/system/ 2>/dev/null || true
 systemctl daemon-reload
 
 # Restart services
-echo "[7/7] Restarting services..."
+echo "[6/6] Restarting services..."
 systemctl restart layrr-server
 systemctl restart layrr-app
 systemctl restart caddy
@@ -52,4 +48,3 @@ echo ""
 echo "  Dashboard: https://app.layrr.dev"
 echo "  Logs:      journalctl -u layrr-server -f"
 echo "             journalctl -u layrr-app -f"
-echo "             journalctl -u caddy -f"

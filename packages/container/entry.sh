@@ -26,12 +26,12 @@ elif [ -d "$WORKSPACE/.git" ]; then
   git reset --hard "origin/${GITHUB_BRANCH:-main}"
 elif [ -n "$GITHUB_REPO" ] && [ -n "$GITHUB_TOKEN" ]; then
   echo "[layrr-container] Cloning repo..."
-  # Remove empty workspace dir so git clone can create it
-  rm -rf "$WORKSPACE"
-  git clone --depth 1 --branch "${GITHUB_BRANCH:-main}" \
-    "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git" \
-    "$WORKSPACE"
   cd "$WORKSPACE"
+  git init
+  git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git"
+  git fetch --depth 1 origin "${GITHUB_BRANCH:-main}"
+  git checkout -f FETCH_HEAD
+  git checkout -B "${GITHUB_BRANCH:-main}"
 else
   echo "[layrr-container] Error: No workspace, repo, or template found"
   exit 1

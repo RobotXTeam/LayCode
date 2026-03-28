@@ -16,12 +16,11 @@ if ! command -v pnpm &> /dev/null; then
   npm install -g pnpm@10
 fi
 
-# Install Docker
-if ! command -v docker &> /dev/null; then
-  echo "Installing Docker..."
-  curl -fsSL https://get.docker.com | sh
-  systemctl enable docker
-  systemctl start docker
+# Install Incus
+if ! command -v incus &> /dev/null; then
+  echo "Installing Incus..."
+  apt-get install -y incus incus-tools
+  incus admin init --auto
 fi
 
 # Install Caddy
@@ -38,12 +37,26 @@ fi
 if ! id "layrr" &>/dev/null; then
   echo "Creating layrr user..."
   useradd -m -s /bin/bash layrr
-  usermod -aG docker layrr
+  usermod -aG incus-admin layrr
 fi
 
 # Create directories
-mkdir -p /opt/layrr /var/lib/layrr/workspaces
+mkdir -p /opt/layrr /var/lib/layrr
 chown -R layrr:layrr /opt/layrr /var/lib/layrr
+
+# Build Incus workspace image
+echo "Building Incus workspace image..."
+if ! incus image list --format=json | grep -q '"layrr-workspace"'; then
+  incus launch images:ubuntu/24.04 builder
+  sleep 5  # Wait for container to be ready
+  incus exec builder -- bash -c "curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs git curl && npm install -g pnpm@10"
+  incus stop builder
+  incus publish builder --alias layrr-workspace
+  incus delete builder
+  echo "Workspace image created"
+else
+  echo "Workspace image already exists"
+fi
 
 echo ""
 echo "=== Setup complete ==="
@@ -51,6 +64,4 @@ echo ""
 echo "Next steps:"
 echo "  1. Clone repo:  git clone <repo-url> /opt/layrr"
 echo "  2. Create /opt/layrr/.env with production values"
-echo "  3. Run:  cd /opt/layrr && bash deploy/deploy.sh"
-echo "  4. Copy Caddyfile:  cp /opt/layrr/deploy/Caddyfile /etc/caddy/Caddyfile"
-echo "  5. Reload Caddy:  systemctl reload caddy"
+echo "  3. Run:  bash /opt/layrr/deploy/deploy.sh"

@@ -13,10 +13,10 @@ async function api(path: string, opts: RequestInit = {}) {
   return res.json();
 }
 
-export async function startContainer(projectId: string, githubRepo: string, branch: string, githubToken: string, gitUsername?: string, gitEmail?: string, sharePassword?: string) {
+export async function startContainer(projectId: string, githubRepo: string, branch: string, githubToken: string, gitUsername?: string, gitEmail?: string, sharePassword?: string, userId?: string, slug?: string) {
   return api(`/projects/${projectId}/start`, {
     method: 'POST',
-    body: JSON.stringify({ githubRepo, branch, githubToken, gitUsername, gitEmail, sharePassword }),
+    body: JSON.stringify({ githubRepo, branch, githubToken, gitUsername, gitEmail, sharePassword, userId, slug }),
   });
 }
 
@@ -40,10 +40,10 @@ export async function freshCloneProject(projectId: string) {
   return api(`/projects/${projectId}/fresh-clone`, { method: 'POST' });
 }
 
-export async function createFromTemplate(projectId: string, name: string, prompt: string, gitUsername?: string, gitEmail?: string) {
+export async function createFromTemplate(projectId: string, name: string, prompt: string, gitUsername?: string, gitEmail?: string, userId?: string) {
   return api(`/projects/${projectId}/create-from-template`, {
     method: 'POST',
-    body: JSON.stringify({ name, prompt, gitUsername, gitEmail }),
+    body: JSON.stringify({ name, prompt, gitUsername, gitEmail, userId }),
   });
 }
 
