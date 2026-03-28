@@ -149,9 +149,8 @@ function incusContainerExists(containerName: string): boolean {
 
 function incusContainerRunning(containerName: string): boolean {
   try {
-    const info = execSync(`incus info ${containerName} --format=json`, { encoding: 'utf-8' });
-    const data = JSON.parse(info);
-    return data.status === 'Running';
+    const output = execSync(`incus info ${containerName}`, { encoding: 'utf-8' });
+    return output.includes('Status: RUNNING');
   } catch {
     return false;
   }
