@@ -132,9 +132,10 @@ function incusContainerName(userId: string): string {
 }
 
 function incusExec(containerName: string, cmd: string, timeout = 300000): string {
-  return execSync(`incus exec ${containerName} -- sh -c "${cmd.replace(/"/g, '\\"')}"`, {
+  return execSync(`incus exec ${containerName} -- sh -c "${cmd.replace(/"/g, '\\"')}" 2>&1`, {
     encoding: 'utf-8',
     timeout,
+    stdio: ['pipe', 'pipe', 'pipe'],
   }).trim();
 }
 
