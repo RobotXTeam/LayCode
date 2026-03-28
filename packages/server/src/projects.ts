@@ -507,7 +507,7 @@ async function createFromTemplateIncus(id: string, name: string, prompt: string,
     addLog(project, `Creating ${name} from template...`);
     incusExec(containerName, `mkdir -p ${workDir}`);
     // Push template contents (not the directory itself) into workspace
-    execSync(`cd "${templateDir}" && tar cf - . | incus exec ${containerName} -n -- tar xf - -C ${workDir}`, { stdio: 'pipe' });
+    execSync(`cd "${templateDir}" && tar cf - . | incus exec ${containerName} -- tar xf - -C ${workDir}`, { stdio: 'pipe' });
 
     // Init git
     const email = gitEmail || 'layrr@layrr.dev';
