@@ -5,6 +5,12 @@ import { eq } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
+function getBaseUrl(req: Request): string {
+  const host = req.headers.get('x-forwarded-host') || req.headers.get('host') || '';
+  const proto = req.headers.get('x-forwarded-proto') || 'http';
+  return `${proto}://${host}`;
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
@@ -14,7 +20,7 @@ export async function GET(req: Request) {
   const storedState = cookieStore.get("github_oauth_state")?.value;
 
   if (!code || !state || state !== storedState) {
-    return NextResponse.redirect(new URL("/sign-in?error=invalid_state", req.url));
+    return NextResponse.redirect(new URL("/sign-in?error=invalid_state", getBaseUrl(req)));
   }
 
   try {
@@ -65,9 +71,9 @@ export async function GET(req: Request) {
 
     cookieStore.delete("github_oauth_state");
 
-    return NextResponse.redirect(new URL("/dashboard", req.url));
+    return NextResponse.redirect(new URL("/dashboard", getBaseUrl(req)));
   } catch (error) {
     console.error("GitHub OAuth error:", error);
-    return NextResponse.redirect(new URL("/sign-in?error=oauth_failed", req.url));
+    return NextResponse.redirect(new URL("/sign-in?error=oauth_failed", getBaseUrl(req)));
   }
 }
