@@ -3,7 +3,7 @@ FROM node:22-slim
 # Install system dependencies
 RUN apt-get update && apt-get install -y git curl && rm -rf /var/lib/apt/lists/*
 
-# Install pnpm globally
+# Install package managers globally
 RUN npm install -g pnpm@10
 
 # Copy layrr CLI
@@ -18,10 +18,14 @@ RUN npm install --omit=dev
 COPY packages/container/entry.sh /opt/layrr/entry.sh
 RUN chmod +x /opt/layrr/entry.sh
 
-# Create workspace volume mount point
-RUN mkdir -p /workspace
+# Create workspace directory
+RUN mkdir -p /workspace/repo
 
 WORKDIR /workspace
+
 EXPOSE 4567
+
+HEALTHCHECK --interval=10s --timeout=3s --start-period=120s --retries=3 \
+  CMD curl -sf http://localhost:4567/ || exit 1
 
 ENTRYPOINT ["/opt/layrr/entry.sh"]

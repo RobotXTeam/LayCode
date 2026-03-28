@@ -15,6 +15,7 @@ export const projects = sqliteTable("projects", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: text("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   name: text("name").notNull(),
+  slug: text("slug").unique(),
   githubRepo: text("github_repo"),
   branch: text("branch").default("main").notNull(),
   sourceType: text("source_type", { enum: ["github", "template"] }).default("github").notNull(),

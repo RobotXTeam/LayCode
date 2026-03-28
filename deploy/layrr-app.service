@@ -1,0 +1,17 @@
+[Unit]
+Description=Layrr Dashboard (Next.js)
+After=network.target layrr-server.service
+
+[Service]
+Type=simple
+User=layrr
+WorkingDirectory=/opt/layrr/packages/app
+ExecStart=/usr/bin/node .next/standalone/server.js
+Restart=always
+RestartSec=5
+EnvironmentFile=/opt/layrr/.env
+Environment=PORT=3000
+Environment=HOSTNAME=0.0.0.0
+
+[Install]
+WantedBy=multi-user.target

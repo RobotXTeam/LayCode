@@ -4,23 +4,37 @@ set -e
 WORKSPACE="/workspace/repo"
 
 echo "[layrr-container] Starting..."
-echo "[layrr-container] Repo: $GITHUB_REPO"
-echo "[layrr-container] Branch: $GITHUB_BRANCH"
+echo "[layrr-container] Repo: ${GITHUB_REPO:-template}"
+echo "[layrr-container] Branch: ${GITHUB_BRANCH:-main}"
+echo "[layrr-container] Agent: ${LAYRR_AGENT:-pi-mono}"
 
-# ---- Clone or pull ----
-if [ -d "$WORKSPACE/.git" ]; then
+# ---- Clean up stale git locks ----
+rm -f "$WORKSPACE/.git/index.lock" "$WORKSPACE/.git/refs/heads/*.lock" 2>/dev/null
+
+# ---- Clone, pull, or use template ----
+if [ "$TEMPLATE_MODE" = "true" ] && [ -d "$WORKSPACE" ]; then
+  echo "[layrr-container] Template mode — using pre-populated workspace"
+  cd "$WORKSPACE"
+elif [ -d "$WORKSPACE/.git" ]; then
   echo "[layrr-container] Repo exists, pulling latest..."
   cd "$WORKSPACE"
   git fetch origin
-  git checkout "$GITHUB_BRANCH"
-  git reset --hard "origin/$GITHUB_BRANCH"
-else
+  git checkout "${GITHUB_BRANCH:-main}"
+  git reset --hard "origin/${GITHUB_BRANCH:-main}"
+elif [ -n "$GITHUB_REPO" ] && [ -n "$GITHUB_TOKEN" ]; then
   echo "[layrr-container] Cloning repo..."
-  git clone --depth 1 --branch "$GITHUB_BRANCH" \
+  git clone --depth 1 --branch "${GITHUB_BRANCH:-main}" \
     "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git" \
     "$WORKSPACE"
   cd "$WORKSPACE"
+else
+  echo "[layrr-container] Error: No workspace, repo, or template found"
+  exit 1
 fi
+
+# ---- Git config ----
+git config user.email "${GIT_EMAIL:-layrr@layrr.dev}"
+git config user.name "${GIT_USERNAME:-Layrr}"
 
 # ---- Detect package manager ----
 if [ -f "pnpm-lock.yaml" ]; then
@@ -35,6 +49,7 @@ fi
 echo "[layrr-container] Package manager: $PM"
 
 # ---- Install dependencies ----
+export CI=true
 echo "[layrr-container] Installing dependencies..."
 $PM install
 
@@ -46,31 +61,29 @@ detect_dev_command() {
     return
   fi
 
-  # Framework-specific commands with correct host binding
   if grep -q '"next"' "$pkg"; then
-    echo "$PM run dev -- -p 3000 -H 0.0.0.0"
+    echo "npx next dev -p 3000 -H 0.0.0.0"
     return
   fi
   if grep -q '"nuxt"' "$pkg"; then
-    echo "$PM run dev -- --port 3000 --host 0.0.0.0"
+    echo "npx nuxt dev --port 3000 --host 0.0.0.0"
     return
   fi
   if grep -q '"astro"' "$pkg"; then
-    echo "$PM run dev -- --port 3000 --host 0.0.0.0"
+    echo "npx astro dev --port 3000 --host 0.0.0.0"
     return
   fi
   if grep -q '"vite"' "$pkg" || grep -q '"@vitejs/plugin-react"' "$pkg"; then
-    echo "$PM run dev -- --port 3000 --host 0.0.0.0"
+    echo "npx vite --port 3000 --host 0.0.0.0"
     return
   fi
   if grep -q '"@sveltejs/kit"' "$pkg"; then
-    echo "$PM run dev -- --port 3000 --host 0.0.0.0"
+    echo "npx vite --port 3000 --host 0.0.0.0"
     return
   fi
 
-  # Generic: try dev script with host flag
   if grep -q '"dev"' "$pkg"; then
-    echo "$PM run dev -- --port 3000 --host 0.0.0.0"
+    echo "$PM run dev"
     return
   fi
 
@@ -94,18 +107,12 @@ FRAMEWORK=$(detect_framework)
 echo "[layrr-container] Framework: $FRAMEWORK"
 echo "[layrr-container] Dev command: $DEV_CMD"
 
-# ---- Init git for layrr (needs at least one commit) ----
-cd "$WORKSPACE"
-git config user.email "layrr@layrr.dev"
-git config user.name "Layrr"
-
 # ---- Start dev server in background ----
 echo "[layrr-container] Starting dev server..."
-echo "[layrr-container] Command: $DEV_CMD"
 $DEV_CMD &
 DEV_PID=$!
 
-# Wait for dev server to be ready (longer timeout for large projects)
+# Wait for dev server to be ready
 echo "[layrr-container] Waiting for dev server on port 3000..."
 for i in $(seq 1 120); do
   if curl -s http://localhost:3000 > /dev/null 2>&1; then
@@ -120,4 +127,8 @@ done
 
 # ---- Start layrr proxy ----
 echo "[layrr-container] Starting layrr proxy on port ${LAYRR_PROXY_PORT:-4567}..."
-exec node /opt/layrr/dist/cli.js --port 3000 --proxy-port "${LAYRR_PROXY_PORT:-4567}" --no-open --agent claude
+exec node /opt/layrr/dist/cli.js \
+  --port 3000 \
+  --proxy-port "${LAYRR_PROXY_PORT:-4567}" \
+  --no-open \
+  --agent "${LAYRR_AGENT:-pi-mono}"

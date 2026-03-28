@@ -118,22 +118,35 @@ try {
     if (status) {
       console.log('  ↪ Committing existing changes before starting...');
       execSync('git add -A', { cwd: projectRoot, stdio: 'pipe' });
-      execSync('git commit -m "pre-layrr snapshot"', { cwd: projectRoot, stdio: 'pipe' });
-      console.log('  ✓ Existing changes committed');
+      try {
+        execSync('git diff --cached --quiet', { cwd: projectRoot, stdio: 'pipe' });
+        // Nothing staged — skip commit
+      } catch {
+        execSync('git commit -m "pre-layrr snapshot"', { cwd: projectRoot, stdio: 'pipe' });
+        console.log('  ✓ Existing changes committed');
+      }
     }
   } catch {
     // No commits yet — initial commit
     console.log('  ↪ Creating initial commit...');
     execSync('git add -A', { cwd: projectRoot, stdio: 'pipe' });
-    execSync('git commit -m "initial commit"', { cwd: projectRoot, stdio: 'pipe' });
-    console.log('  ✓ Initial commit created');
+    try {
+      execSync('git commit -m "initial commit"', { cwd: projectRoot, stdio: 'pipe' });
+      console.log('  ✓ Initial commit created');
+    } catch {
+      // Nothing to commit — that's fine
+    }
   }
 } catch {
   // Not a git repo — initialize one
   console.log('  ↪ Initializing git repository...');
   execSync('git init', { cwd: projectRoot, stdio: 'pipe' });
   execSync('git add -A', { cwd: projectRoot, stdio: 'pipe' });
-  execSync('git commit -m "initial commit"', { cwd: projectRoot, stdio: 'pipe' });
+  try {
+    execSync('git commit -m "initial commit"', { cwd: projectRoot, stdio: 'pipe' });
+  } catch {
+    // Empty repo is fine
+  }
   console.log('  ✓ Git repository initialized');
 }
 

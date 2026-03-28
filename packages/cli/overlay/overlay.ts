@@ -2,7 +2,7 @@
   if ((window as any).__LAYRR_LOADED__) return;
   (window as any).__LAYRR_LOADED__ = true;
 
-  const WS_PORT = (window as any).__LAYRR_WS_PORT__ || 4567;
+  const WS_PORT = location.port || (window as any).__LAYRR_WS_PORT__ || 4567;
 
   const { L } = await import('./constants');
   const { ensureStyles } = await import('./styles');
