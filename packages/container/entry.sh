@@ -8,6 +8,9 @@ echo "[layrr-container] Repo: ${GITHUB_REPO:-template}"
 echo "[layrr-container] Branch: ${GITHUB_BRANCH:-main}"
 echo "[layrr-container] Agent: ${LAYRR_AGENT:-pi-mono}"
 
+# ---- Git safe directory (volume ownership mismatch) ----
+git config --global --add safe.directory /workspace/repo
+
 # ---- Clean up stale git locks ----
 rm -f "$WORKSPACE/.git/index.lock" 2>/dev/null || true
 
