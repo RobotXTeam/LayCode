@@ -9,7 +9,7 @@ echo "[layrr-container] Branch: ${GITHUB_BRANCH:-main}"
 echo "[layrr-container] Agent: ${LAYRR_AGENT:-pi-mono}"
 
 # ---- Clean up stale git locks ----
-rm -f "$WORKSPACE/.git/index.lock" "$WORKSPACE/.git/refs/heads/*.lock" 2>/dev/null
+rm -f "$WORKSPACE/.git/index.lock" 2>/dev/null || true
 
 # ---- Clone, pull, or use template ----
 if [ "$TEMPLATE_MODE" = "true" ] && [ -d "$WORKSPACE" ]; then
@@ -23,6 +23,8 @@ elif [ -d "$WORKSPACE/.git" ]; then
   git reset --hard "origin/${GITHUB_BRANCH:-main}"
 elif [ -n "$GITHUB_REPO" ] && [ -n "$GITHUB_TOKEN" ]; then
   echo "[layrr-container] Cloning repo..."
+  # Remove empty workspace dir so git clone can create it
+  rm -rf "$WORKSPACE"
   git clone --depth 1 --branch "${GITHUB_BRANCH:-main}" \
     "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPO}.git" \
     "$WORKSPACE"
