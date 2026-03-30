@@ -20,17 +20,6 @@ su - layrr -c "cd /opt/layrr && pnpm install"
 echo "[3/7] Building..."
 su - layrr -c "cd /opt/layrr && pnpm build"
 
-# Update Incus workspace CLI (if Incus mode)
-if [ -f /opt/layrr/.env ] && grep -q "LAYRR_MODE=incus" /opt/layrr/.env; then
-  echo "[4/7] Updating layrr CLI in running containers..."
-  for container in $(incus list --format=csv -c n 2>/dev/null | grep "^layrr-"); do
-    if incus info "$container" 2>/dev/null | grep -q "Status: RUNNING"; then
-      incus file push -r /opt/layrr/packages/cli/dist "$container/opt/layrr/" 2>/dev/null || true
-      echo "  Updated CLI in $container"
-    fi
-  done
-fi
-
 # Push DB schema
 echo "[5/7] Pushing database schema..."
 su - layrr -c "cd /opt/layrr/packages/app && DATABASE_PATH=/var/lib/layrr/layrr.db npx drizzle-kit push"

@@ -95,8 +95,8 @@ function LinkGithubAction({ projectId }: { projectId: string }) {
       >
         <Link2 className="h-4 w-4 text-muted-foreground" />
         <div className="flex-1">
-          <p className="text-xs font-medium">Link with GitHub</p>
-          <p className="text-[10px] text-muted-foreground mt-0.5">Create a repo and push your project</p>
+          <p className="text-xs font-medium">Save to GitHub</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">Back up your website to GitHub</p>
         </div>
       </button>
 
@@ -151,7 +151,7 @@ function LinkGithubAction({ projectId }: { projectId: string }) {
                 </motion.p>
               )}
               <p className="text-[10px] text-muted-foreground">
-                Creates a new public repository on your GitHub account and pushes the project code.
+                This saves your website code to your GitHub account so you can share it or host it anywhere.
               </p>
             </div>
           </motion.div>
@@ -211,8 +211,8 @@ function GitHubActions({ projectId, branch }: { projectId: string; branch: strin
         >
           <GithubIcon className="h-4 w-4 text-muted-foreground" />
           <div className="flex-1">
-            <p className="text-xs font-medium">Push to GitHub</p>
-            <p className="text-[10px] text-muted-foreground mt-0.5">Push your edits to a branch</p>
+            <p className="text-xs font-medium">Publish to GitHub</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">Publish your changes to a branch</p>
           </div>
         </button>
 
@@ -227,39 +227,30 @@ function GitHubActions({ projectId, branch }: { projectId: string; branch: strin
             >
               <div className="px-3 pb-3 pt-2 space-y-3">
                 <div>
-                  <label className="text-[10px] text-muted-foreground mb-1 block">Target branch</label>
-                  <div className="flex gap-2">
-                    <div className="flex-1 flex items-center gap-2 h-8 px-3 rounded-md border border-input bg-secondary text-xs">
-                      <GitBranch className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-                      <input
-                        value={pushBranch}
-                        onChange={(e) => setPushBranch(e.target.value)}
-                        className="flex-1 bg-transparent outline-none text-xs"
-                        placeholder="branch-name"
-                      />
-                    </div>
+                  <label className="text-[10px] text-muted-foreground mb-1 block">Publish to</label>
+                  <div className="flex gap-1.5 mb-3">
                     <button
-                      onClick={handlePush}
-                      disabled={pushing || !pushBranch}
-                      className="flex items-center gap-1.5 bg-primary text-primary-foreground px-3 py-1.5 rounded-md text-xs font-semibold hover:opacity-90 transition-opacity disabled:opacity-50"
+                      onClick={() => setPushBranch(branch)}
+                      className={`flex items-center gap-1.5 text-[10px] px-2.5 py-1 rounded-md border transition-colors ${pushBranch === branch ? 'border-foreground/20 bg-secondary text-foreground font-medium' : 'border-input text-muted-foreground hover:text-foreground'}`}
                     >
-                      {pushing ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                      Push
+                      <GitBranch className="h-3 w-3" />
+                      {branch}
+                    </button>
+                    <button
+                      onClick={() => setPushBranch(`layrr/${branch}`)}
+                      className={`flex items-center gap-1.5 text-[10px] px-2.5 py-1 rounded-md border transition-colors ${pushBranch === `layrr/${branch}` ? 'border-foreground/20 bg-secondary text-foreground font-medium' : 'border-input text-muted-foreground hover:text-foreground'}`}
+                    >
+                      <GitBranch className="h-3 w-3" />
+                      layrr/{branch}
                     </button>
                   </div>
-                </div>
-                <div className="flex gap-1.5">
                   <button
-                    onClick={() => setPushBranch(branch)}
-                    className="text-[10px] text-muted-foreground hover:text-foreground transition-colors px-1.5 py-0.5 rounded bg-secondary"
+                    onClick={handlePush}
+                    disabled={pushing || !pushBranch}
+                    className="flex items-center gap-1.5 bg-primary text-primary-foreground px-3 py-1.5 rounded-md text-xs font-semibold hover:opacity-90 transition-opacity disabled:opacity-50"
                   >
-                    {branch}
-                  </button>
-                  <button
-                    onClick={() => setPushBranch(`layrr/${branch}`)}
-                    className="text-[10px] text-muted-foreground hover:text-foreground transition-colors px-1.5 py-0.5 rounded bg-secondary"
-                  >
-                    layrr/{branch}
+                    {pushing ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                    Publish
                   </button>
                 </div>
                 <ResultMessage result={result} />
@@ -277,8 +268,8 @@ function GitHubActions({ projectId, branch }: { projectId: string; branch: strin
         >
           <RotateCcw className="h-4 w-4 text-muted-foreground" />
           <div className="flex-1">
-            <p className="text-xs font-medium">Fresh clone</p>
-            <p className="text-[10px] text-muted-foreground mt-0.5">Delete workspace and re-clone from GitHub</p>
+            <p className="text-xs font-medium">Start over</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">Reset to the original version from GitHub</p>
           </div>
         </button>
 
@@ -295,7 +286,7 @@ function GitHubActions({ projectId, branch }: { projectId: string; branch: strin
                 <div className="flex items-start gap-2 rounded-lg bg-destructive/5 border border-destructive/10 px-3 py-2.5">
                   <AlertTriangle className="h-3.5 w-3.5 text-destructive flex-shrink-0 mt-0.5" />
                   <p className="text-[10px] text-muted-foreground leading-relaxed">
-                    This will delete all local changes. Make sure you've pushed any edits you want to keep.
+                    Start over from scratch. Any unpublished changes will be lost.
                   </p>
                 </div>
                 <button
@@ -330,9 +321,9 @@ function SharePasswordAction({ projectId, initialPassword }: { projectId: string
       >
         <Lock className="h-4 w-4 text-muted-foreground" />
         <div className="flex-1">
-          <p className="text-xs font-medium">Share password</p>
+          <p className="text-xs font-medium">Share access</p>
           <p className="text-[10px] text-muted-foreground mt-0.5">
-            {initialPassword ? "Password protected" : "Set a password to allow others to access the editor"}
+            {initialPassword ? "Password protected" : "Let others view and edit your website with a password"}
           </p>
         </div>
       </button>

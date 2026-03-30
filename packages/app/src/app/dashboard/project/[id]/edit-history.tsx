@@ -51,7 +51,7 @@ export function EditHistory({ projectId }: { projectId: string }) {
         <div className="px-5 py-12 text-center">
           <Clock className="h-5 w-5 text-muted-foreground/40 mx-auto mb-2" />
           <p className="text-xs text-muted-foreground">No edits yet</p>
-          <p className="text-[10px] text-muted-foreground/60 mt-1">Start the editor to make your first edit</p>
+          <p className="text-[10px] text-muted-foreground/60 mt-1">Your website is ready — open the editor to start customizing</p>
         </div>
       ) : (
         <div className="divide-y divide-border">

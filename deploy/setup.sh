@@ -16,11 +16,10 @@ if ! command -v pnpm &> /dev/null; then
   npm install -g pnpm@10
 fi
 
-# Install Incus
-if ! command -v incus &> /dev/null; then
-  echo "Installing Incus..."
-  apt-get install -y incus incus-tools
-  incus admin init --auto
+# Install bubblewrap for sandboxing
+if ! command -v bwrap &> /dev/null; then
+  echo "Installing bubblewrap..."
+  apt-get install -y bubblewrap
 fi
 
 # Install Caddy
@@ -37,26 +36,11 @@ fi
 if ! id "layrr" &>/dev/null; then
   echo "Creating layrr user..."
   useradd -m -s /bin/bash layrr
-  usermod -aG incus-admin layrr
 fi
 
 # Create directories
 mkdir -p /opt/layrr /var/lib/layrr
 chown -R layrr:layrr /opt/layrr /var/lib/layrr
-
-# Build Incus workspace image
-echo "Building Incus workspace image..."
-if ! incus image list --format=json | grep -q '"layrr-workspace"'; then
-  incus launch images:ubuntu/24.04 builder
-  sleep 5  # Wait for container to be ready
-  incus exec builder -- bash -c "curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs git curl && npm install -g pnpm@10"
-  incus stop builder
-  incus publish builder --alias layrr-workspace
-  incus delete builder
-  echo "Workspace image created"
-else
-  echo "Workspace image already exists"
-fi
 
 echo ""
 echo "=== Setup complete ==="

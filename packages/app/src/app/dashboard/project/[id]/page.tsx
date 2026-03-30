@@ -6,7 +6,7 @@ import { redirect, notFound } from "next/navigation";
 import { ContainerControls } from "./controls";
 import { ProjectActions } from "./project-actions";
 import { EditHistory } from "./edit-history";
-import { ArrowLeft, GitBranch, ExternalLink } from "lucide-react";
+import { ArrowLeft, ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { DeleteButton } from "../../delete-button";
 
@@ -69,15 +69,6 @@ export default async function ProjectPage({
                   {project.githubRepo}
                   <ExternalLink className="h-2.5 w-2.5" />
                 </a>
-              )}
-              <span className="flex items-center gap-1">
-                <GitBranch className="h-3 w-3" />
-                {project.branch}
-              </span>
-              {project.framework && (
-                <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px]">
-                  {project.framework}
-                </span>
               )}
             </div>
           </div>

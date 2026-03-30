@@ -1,14 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Sparkles, Loader2, ArrowLeft } from "lucide-react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 
 export default function NewWebsitePage() {
-  const [name, setName] = useState("");
-  const [prompt, setPrompt] = useState("");
+  const searchParams = useSearchParams();
+  const [name, setName] = useState(searchParams.get("name") || "");
+  const [prompt, setPrompt] = useState(searchParams.get("prompt") || "");
   const [creating, setCreating] = useState(false);
   const router = useRouter();
 
@@ -42,7 +43,7 @@ export default function NewWebsitePage() {
 
       <h1 className="text-xl font-bold mb-2">New Website</h1>
       <p className="text-sm text-muted-foreground mb-8">
-        We'll create a Next.js project with Tailwind and shadcn/ui.
+        We'll set up everything for you. Just describe what you want.
       </p>
 
       <div className="space-y-5 max-w-md">

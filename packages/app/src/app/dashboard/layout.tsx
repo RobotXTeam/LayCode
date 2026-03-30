@@ -20,7 +20,7 @@ export default async function DashboardLayout({
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-3">
               <span className="text-[13px] text-muted-foreground">
-                {session.githubUsername}
+                {session.githubUsername || session.displayName}
               </span>
               <a
                 href="/api/auth/logout"

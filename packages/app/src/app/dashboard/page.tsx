@@ -4,8 +4,8 @@ import { projects } from "@/lib/schema";
 import { eq, desc } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Plus, GitBranch } from "lucide-react";
-import { ProjectActions, EmptyActions } from "./actions";
+import { GitBranch, Sparkles, Globe, FileText } from "lucide-react";
+import { ProjectActions } from "./actions";
 
 function GithubIcon({ className }: { className?: string }) {
   return (
@@ -27,6 +27,30 @@ function timeAgo(date: Date): string {
   return date.toLocaleDateString();
 }
 
+const STATUS_LABELS: Record<string, string> = {
+  RUNNING: "Live",
+  STARTING: "Starting...",
+  CREATING: "Creating...",
+  STOPPED: "Offline",
+  ERROR: "Issue",
+  STOPPING: "Stopping...",
+};
+
+function TemplateCard({ name, description, prompt, icon: Icon }: { name: string; description: string; prompt: string; icon: any }) {
+  return (
+    <Link
+      href={`/dashboard/new?name=${encodeURIComponent(name)}&prompt=${encodeURIComponent(prompt)}`}
+      className="group rounded-xl bg-card p-4 ring-1 ring-foreground/10 transition-all hover:ring-foreground/20 text-left"
+    >
+      <div className="h-8 w-8 rounded-lg bg-secondary flex items-center justify-center mb-3">
+        <Icon className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+      </div>
+      <p className="text-xs font-semibold mb-1">{name}</p>
+      <p className="text-[10px] text-muted-foreground leading-relaxed">{description}</p>
+    </Link>
+  );
+}
+
 export default async function DashboardPage() {
   const session = await getSession();
   if (!session.userId) redirect("/sign-in");
@@ -35,66 +59,108 @@ export default async function DashboardPage() {
     .where(eq(projects.userId, session.userId))
     .orderBy(desc(projects.updatedAt));
 
+  const displayName = session.githubUsername || session.displayName || "there";
+
   return (
     <div>
-      <div className="mb-8">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-1 rounded-lg bg-secondary p-1">
-            <button className="rounded-md bg-background px-3 py-1.5 text-xs font-semibold shadow-sm">
-              Projects
-            </button>
-            <button className="rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground cursor-not-allowed" disabled>
-              Team
-              <span className="ml-1.5 rounded bg-foreground/5 px-1 py-0.5 text-[9px] text-muted-foreground/60">soon</span>
-            </button>
-          </div>
-          <ProjectActions />
-        </div>
-      </div>
-
       {userProjects.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24">
-          <div className="mb-4 rounded-full bg-secondary p-3">
-            <Plus className="h-5 w-5 text-muted-foreground" />
+        <div>
+          <div className="mb-10">
+            <h1 className="text-xl font-bold mb-2">Welcome, {displayName}</h1>
+            <p className="text-sm text-muted-foreground">Describe what you want to build and AI will create it for you.</p>
           </div>
-          <p className="mb-1 text-sm font-medium">No projects yet</p>
-          <p className="mb-6 text-xs text-muted-foreground">Create a new website or import from GitHub</p>
-          <EmptyActions />
+
+          {/* Hero CTA */}
+          <Link
+            href="/dashboard/new"
+            className="group block rounded-xl bg-card p-6 ring-1 ring-foreground/10 transition-all hover:ring-foreground/20 mb-6"
+          >
+            <div className="flex items-center gap-4">
+              <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+                <Sparkles className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold mb-0.5">Create a new website</p>
+                <p className="text-xs text-muted-foreground">Describe what you want and AI will build it. You can edit everything visually after.</p>
+              </div>
+            </div>
+          </Link>
+
+          {/* Starter templates */}
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">Start from a template</p>
+          <div className="grid grid-cols-3 gap-3 mb-8">
+            <TemplateCard
+              name="Landing Page"
+              description="A hero section, features, pricing, and a signup form."
+              prompt="A modern SaaS landing page with a hero section, features grid with icons, pricing table with 3 tiers, testimonials, and a waitlist signup form. Use a clean, professional design."
+              icon={Globe}
+            />
+            <TemplateCard
+              name="Portfolio"
+              description="Showcase your work with a personal portfolio site."
+              prompt="A minimal personal portfolio website with a bio section, a grid of project cards with images and descriptions, a skills section, and a contact form. Dark theme, elegant typography."
+              icon={FileText}
+            />
+            <TemplateCard
+              name="Blog"
+              description="A simple blog with posts and a clean reading experience."
+              prompt="A minimal blog homepage with a header, a list of blog post cards with title, date, excerpt, and a featured post at the top. Include a sidebar with categories and an about section. Clean, readable design."
+              icon={FileText}
+            />
+          </div>
+
+          {/* Import option */}
+          {session.githubToken && (
+            <div className="text-center">
+              <p className="text-[10px] text-muted-foreground mb-2">Already have a project?</p>
+              <ProjectActions />
+            </div>
+          )}
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-3">
-          {userProjects.map((project) => (
-            <Link
-              key={project.id}
-              href={`/dashboard/project/${project.id}`}
-              className="group rounded-xl bg-card p-4 ring-1 ring-foreground/10 transition-all hover:ring-foreground/20"
-            >
-              <div className="flex items-center justify-between gap-3 mb-3">
-                <h2 className="text-[13px] font-semibold truncate min-w-0">{project.name}</h2>
-                <StatusPill status={project.containerStatus} />
-              </div>
-              <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                <GithubIcon className="h-3 w-3 flex-shrink-0" />
-                <span className="truncate">{project.githubRepo}</span>
-              </div>
-              <div className="flex items-center justify-between mt-3 pt-3 border-t border-border">
-                <div className="flex items-center gap-2">
-                  <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                    <GitBranch className="h-2.5 w-2.5" />
-                    {project.branch}
-                  </span>
-                  {project.framework && (
-                    <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                      {project.framework}
-                    </span>
-                  )}
+        <div>
+          <div className="flex items-center justify-between mb-6">
+            <h1 className="text-lg font-bold">Projects</h1>
+            <ProjectActions />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {userProjects.map((project) => (
+              <Link
+                key={project.id}
+                href={`/dashboard/project/${project.id}`}
+                className="group rounded-xl bg-card p-4 ring-1 ring-foreground/10 transition-all hover:ring-foreground/20"
+              >
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <h2 className="text-[13px] font-semibold truncate min-w-0">{project.name}</h2>
+                  <StatusPill status={project.containerStatus} />
                 </div>
-                <span className="text-[10px] text-muted-foreground">
-                  {timeAgo(project.updatedAt)}
-                </span>
-              </div>
-            </Link>
-          ))}
+                {project.githubRepo && (
+                  <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                    <GithubIcon className="h-3 w-3 flex-shrink-0" />
+                    <span className="truncate">{project.githubRepo}</span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between mt-3 pt-3 border-t border-border">
+                  <div className="flex items-center gap-2">
+                    {project.githubRepo && (
+                      <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                        <GitBranch className="h-2.5 w-2.5" />
+                        {project.branch}
+                      </span>
+                    )}
+                    {project.framework && (
+                      <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                        {project.framework}
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[10px] text-muted-foreground">
+                    {timeAgo(project.updatedAt)}
+                  </span>
+                </div>
+              </Link>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -112,11 +178,12 @@ function StatusPill({ status }: { status: string }) {
   };
 
   const s = styles[status] || styles.STOPPED;
+  const label = STATUS_LABELS[status] || "Offline";
 
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium flex-shrink-0 ${s.bg}`}>
       <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
-      {status.toLowerCase()}
+      {label}
     </span>
   );
 }

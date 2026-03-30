@@ -158,7 +158,7 @@ export function ContainerControls({
             </div>
             <div>
               <p className="text-xs font-medium">Starting editor...</p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">Cloning repo and installing dependencies</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">Setting up your website...</p>
             </div>
           </div>
         </div>

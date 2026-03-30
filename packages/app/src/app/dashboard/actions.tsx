@@ -32,34 +32,6 @@ export function ProjectActions() {
           className="flex items-center gap-2 rounded-md border border-border px-3.5 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
         >
           <GithubIcon className="h-3.5 w-3.5" />
-          Import
-        </button>
-      </div>
-      <AnimatePresence>
-        {showImport && <ImportModal onClose={() => setShowImport(false)} />}
-      </AnimatePresence>
-    </>
-  );
-}
-
-export function EmptyActions() {
-  const [showImport, setShowImport] = useState(false);
-
-  return (
-    <>
-      <div className="flex gap-3">
-        <Link
-          href="/dashboard/new"
-          className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-md text-xs font-semibold hover:opacity-90 transition-opacity"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          New Website
-        </Link>
-        <button
-          onClick={() => setShowImport(true)}
-          className="flex items-center gap-2 rounded-md border border-border px-4 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <GithubIcon className="h-3.5 w-3.5" />
           Import from GitHub
         </button>
       </div>
