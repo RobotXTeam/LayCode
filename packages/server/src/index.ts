@@ -43,6 +43,7 @@ app.use('*', async (c, next) => {
         method: c.req.method,
         headers,
         body,
+        redirect: 'manual',
       });
 
       const respHeaders = new Headers();

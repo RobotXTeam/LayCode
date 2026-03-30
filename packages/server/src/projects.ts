@@ -150,6 +150,9 @@ function bwrapArgs(workDir: string): string[] {
   // Allow access to the layrr CLI (for the proxy process)
   const cliDir = join(process.cwd(), '..', 'cli');
   if (existsSync(cliDir)) args.push('--ro-bind', cliDir, cliDir);
+  // pnpm symlinks packages to the root node_modules/.pnpm store
+  const rootNodeModules = join(process.cwd(), '..', '..', 'node_modules');
+  if (existsSync(rootNodeModules)) args.push('--ro-bind', rootNodeModules, rootNodeModules);
   return args;
 }
 
@@ -589,7 +592,7 @@ async function createFromTemplateIncus(id: string, name: string, prompt: string,
     if (prompt) {
       addLog(project, 'Generating initial version...');
       try {
-        await sendEditViaProxy(hostPort, prompt);
+        await sendEditViaProxy(hostPort, prompt, project.accessToken);
         addLog(project, 'Initial version generated');
       } catch (err: any) {
         addLog(project, `Generation warning: ${err.message}`);
@@ -665,7 +668,7 @@ async function createFromTemplateLocal(id: string, name: string, prompt: string,
 
     if (prompt) {
       addLog(project, 'Generating initial version...');
-      try { await sendEditViaProxy(proxyPort, prompt); addLog(project, 'Initial version generated'); }
+      try { await sendEditViaProxy(proxyPort, prompt, project.accessToken); addLog(project, 'Initial version generated'); }
       catch (err: any) { addLog(project, `Generation warning: ${err.message}`); }
     }
 
@@ -917,10 +920,13 @@ export async function cleanupOrphanProcesses() {
 
 // ── internal helpers ──
 
-async function sendEditViaProxy(proxyPort: number, prompt: string): Promise<void> {
+async function sendEditViaProxy(proxyPort: number, prompt: string, accessToken?: string): Promise<void> {
   const WebSocket = (await import('ws')).default;
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://localhost:${proxyPort}/__layrr__/ws`);
+    const url = accessToken
+      ? `ws://localhost:${proxyPort}/__layrr__/ws?token=${accessToken}`
+      : `ws://localhost:${proxyPort}/__layrr__/ws`;
+    const ws = new WebSocket(url);
     const timeout = setTimeout(() => { ws.close(); reject(new Error('Edit timed out')); }, 180000);
     ws.on('open', () => {
       const enhancedPrompt = `You are building a Next.js web application with Tailwind CSS and shadcn/ui components.\n\nThe user wants: ${prompt}\n\nEdit the files in this project to build what the user described. Focus on src/app/page.tsx as the main page. Use shadcn components where appropriate. Use lucide-react for icons and framer-motion for animations (both already installed). Make it look professional and modern.`;

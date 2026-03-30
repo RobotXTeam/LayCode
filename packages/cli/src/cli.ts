@@ -2,7 +2,6 @@
 
 import { resolve } from 'path';
 import { execSync } from 'child_process';
-import open from 'open';
 import { startProxy } from './server/proxy.js';
 import { editQueue } from './server/edit-queue.js';
 import { createAgent, checkAgent, getAgentDisplayName, getInstallHint, getAuthHint, isValidAgent, AGENT_LIST } from './agents/index.js';
@@ -157,6 +156,7 @@ await startProxy(targetPort, proxyPort, projectRoot);
 console.log(`  ✓ Proxy running on http://localhost:${proxyPort}`);
 
 if (!noOpen) {
+  const { default: open } = await import('open');
   await open(`http://localhost:${proxyPort}`);
   console.log('  ✓ Browser opened');
 }

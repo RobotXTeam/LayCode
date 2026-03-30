@@ -124,7 +124,6 @@ export function ContainerControls({
             </div>
             <div>
               <p className="text-xs font-medium">Editor is running</p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">http://localhost:{proxyPort}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
