@@ -1,79 +1,97 @@
-<div align="center">
+# LayCode
 
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="layrr-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="layrr-light.svg">
-    <img src="layrr-dark.svg" alt="layrr" width="120">
-  </picture>
+LayCode 是基于 Layrr 二次开发的本地可视化 UI 编辑器。
 
-  <h1>layrr</h1>
+核心能力：
 
-  <p>
-    <strong>Point at anything. Describe the change. Done.</strong>
-  </p>
-  <p>
-    Layrr is a visual AI code editor. Import a GitHub repo or start from a template, click any element in the running app, describe what you want in plain English, and AI edits the source code — live. Push changes back to GitHub when you're done.
-  </p>
+- 导入本地前端项目目录（新增）
+- 支持 React/Vite、Vue/Vite、纯 HTML 等项目检测与启动
+- 通过可视化编辑代理对本地页面进行操作并写回源码
+- 在 overlay 中实时捕获页面变更，自动生成中英双语自然语言修改说明（新增）
+- 支持复制/导出变更说明（新增）
 
-  <p>
-    <a href="https://layrr.dev">Website</a> &middot;
-    <a href="#get-started">Get Started</a> &middot;
-    <a href="#how-it-works">How It Works</a> &middot;
-    <a href="#cli">CLI</a>
-  </p>
+## 1. 环境要求
 
-  <p>
-    <a href="https://www.npmjs.com/package/layrr"><img src="https://img.shields.io/npm/v/layrr?style=flat-square&color=18181b" alt="npm"></a>
-    <a href="https://github.com/thetronjohnson/layrr/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-18181b?style=flat-square" alt="License"></a>
-  </p>
-</div>
+- Node.js >= 18（建议 20）
+- pnpm >= 10
+- Linux/macOS（Windows 未做完整验证）
 
----
-
-## Why Layrr
-
-AI coding tools are powerful, but you still have to describe *where* to make the change — which file, which component, which line. Layrr skips all of that. You point at the thing on screen, say what you want, and the code changes.
-
-**No context-switching.** You stay in the browser, looking at the actual app. No jumping between editor tabs, no grepping for the right file, no copy-pasting selectors into a prompt.
-
-**Every edit is a git commit.** Each AI change is auto-committed with a `[layrr]` prefix. Preview how the app looked at any past edit, or revert to a previous version in one click. You always have a clean undo path.
-
-**Works with any framework.** React, Next.js, Vue, Nuxt, Svelte, SvelteKit, Solid, Astro, Vite — Layrr maps clicked elements back to source files across all of them.
-
-## Get Started
-
-Go to [layrr.dev](https://layrr.dev) and sign up. You can:
-
-- **Import a GitHub repo** — Layrr clones it, spins up a dev server, and opens the visual editor. When you're done, push your changes back to GitHub.
-- **Start from a template** — Describe what you want to build in plain English. Layrr generates a working Next.js app and drops you into the editor to keep iterating visually.
-
-## How It Works
-
-```
-You click an element          Layrr figures out             AI edits the
-in the browser          →     the source file + line    →   actual code
-                                                            ↓
-You see it instantly    ←     Dev server hot reloads    ←   Saved & committed
-```
-
-Click any element on the page to select it. Type what you want to change. The AI reads the source file, makes targeted edits, and your dev server hot-reloads the result instantly.
-
-**Multi-select** — Shift+click to select multiple elements and apply one instruction to all of them.
-
-**History** — Open the history panel to preview how the app looked at any past edit, or permanently revert to a previous version.
-
-**Publish** — Push your changes to a GitHub branch when you're ready. Share a live preview link with anyone, protected by a password you set.
-
-## CLI
-
-Layrr also ships as an open-source CLI you can run against any local dev server.
+## 2. 安装与启动
 
 ```bash
-npx layrr --port 3000
+pnpm install
+./dev.sh
 ```
 
-See the [CLI docs](packages/cli/README.md) for setup and options.
+默认地址：
+
+- Dashboard: http://localhost:3000
+- Server API: http://localhost:8787
+
+## 3. 本地项目导入（新功能）
+
+在 Dashboard 的 Import 页面：
+
+1. 使用 Import Local Project 区块输入本地绝对路径
+2. 创建项目后进入项目页
+3. 点击 Start Editor 启动可视化代理
+
+项目页新增：
+
+- Local 路径标识
+- 项目文件树面板（基础版）
+
+## 4. 变更说明导出（新功能）
+
+在编辑器 overlay 的 Edit 面板新增 Change Notes 区块：
+
+- 自动捕获结构、文本、样式变化
+- 中/英语言切换（默认中文）
+- Copy 一键复制说明
+- Export 导出为 Markdown 文件
+
+说明可直接粘贴给 AI，例如：
+
+"请将 button#hero-button 的 background-color 从 #007bff 改为 #1a1a2e，并将 border-radius 调整为 12px。"
+
+## 5. 与 AI 协作建议
+
+推荐流程：
+
+1. 在 LayCode 里可视化调整
+2. 从 Change Notes 复制描述
+3. 粘贴给 ChatGPT/Claude/Codex，要求其在对应代码仓中应用
+4. 回到 LayCode 继续微调
+
+## 6. 本地自测示例
+
+仓库内置了两个示例目录：
+
+- samples/react-vite
+- samples/html-bootstrap
+
+可通过 Server API 启动验证（需 `Authorization: Bearer dev-secret`）：
+
+```bash
+curl -X POST http://localhost:8787/projects/react-local/start \
+  -H 'Authorization: Bearer dev-secret' \
+  -H 'Content-Type: application/json' \
+  -d '{"sourceType":"local","localPath":"/absolute/path/to/samples/react-vite"}'
+```
+
+```bash
+curl -X POST http://localhost:8787/projects/html-local/start \
+  -H 'Authorization: Bearer dev-secret' \
+  -H 'Content-Type: application/json' \
+  -d '{"sourceType":"local","localPath":"/absolute/path/to/samples/html-bootstrap"}'
+```
+
+## 7. 注意事项
+
+- 所有操作默认在本地完成，不会主动上传代码到云端。
+- 若 `LAYRR_AGENT` 对应代理未登录，编辑请求会失败，需要先配置代理登录状态。
+- 建议不要把被编辑项目放在本仓库内部，以避免 git 提交边界混淆。
 
 ## License
 
-MIT — Built by [Kiran Johns](https://kiranjohns.com)
+MIT

@@ -234,7 +234,7 @@ export function injectStyles() {
     .${L}-px:active{transform:scale(.95)}
     .${L}-ei{margin:6px 10px;padding:6px 8px;background:${C.surface};border:1px solid ${C.border};border-radius:${radius.lg}}
     .${L}-eh{font-size:${size.md};color:${C.textDim};text-align:center;padding:8px 4px}
-    .${L}-eh kbd{background:${C.bg};border:1px solid ${C.border};border-radius:3px;padding:1px 4px;font-size:${size.sm};font-family:${mono}}
+    .${L}-eh kbd{background:${C.surface};border:1px solid ${C.border};border-radius:3px;padding:1px 4px;font-size:${size.sm};font-family:${mono}}
     .${L}-et{font-family:${mono};font-size:${size.md};color:${C.hl}}
     .${L}-ex{font-size:${size.sm};color:${C.textDim};margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .${L}-ep{font-size:${size.xs};color:${C.accent};margin-top:2px;font-family:${mono};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
