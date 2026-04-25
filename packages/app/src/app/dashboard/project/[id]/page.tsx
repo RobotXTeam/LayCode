@@ -6,7 +6,7 @@ import { redirect, notFound } from "next/navigation";
 import { ContainerControls } from "./controls";
 import { ProjectActions } from "./project-actions";
 import { EditHistory } from "./edit-history";
-import { FileTree } from "./file-tree";
+import { ProjectExplorer } from "./project-explorer";
 import { ArrowLeft, ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { DeleteButton } from "../../delete-button";
@@ -94,7 +94,7 @@ export default async function ProjectPage({
           />
         </div>
 
-        <FileTree projectId={project.id} />
+        <ProjectExplorer projectId={project.id} />
 
         {/* Actions */}
         <ProjectActions projectId={project.id} branch={project.branch} githubRepo={project.githubRepo} sharePassword={project.sharePassword} hasGithub={!!session.githubToken} />

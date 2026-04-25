@@ -61,6 +61,7 @@
   };
 
   const snap = new WeakMap<HTMLElement, Snapshot>();
+  const sourceCache = new WeakMap<HTMLElement, { file?: string; line?: number }>();
 
   function formatSelector(el: HTMLElement): string {
     const id = el.id ? `#${el.id}` : '';
@@ -78,6 +79,31 @@
       text: (el.textContent || '').trim().slice(0, 200),
       styles,
     };
+  }
+
+  function buildUnifiedPatch(source: { file?: string; line?: number } | null | undefined, before: string, after: string, hint: string): string {
+    const file = source?.file || 'unknown-file';
+    const line = source?.line || 1;
+    return [
+      `--- a/${file}`,
+      `+++ b/${file}`,
+      `@@ -${line},1 +${line},1 @@`,
+      `-${before || `/* ${hint}: previous */`}`,
+      `+${after || `/* ${hint}: updated */`}`,
+    ].join('\n');
+  }
+
+  async function resolveSource(el: HTMLElement): Promise<{ file?: string; line?: number }> {
+    const cached = sourceCache.get(el);
+    if (cached) return cached;
+    try {
+      const info = await extractSourceInfo(el) as any;
+      const source = { file: info?.file, line: info?.line };
+      sourceCache.set(el, source);
+      return source;
+    } catch {
+      return {};
+    }
   }
 
   function pushChange(zh: string, en: string, patch?: string) {
@@ -109,22 +135,25 @@
     }).join('');
   }
 
-  function describeStyleChange(el: HTMLElement, prop: string, before: string, after: string) {
+  async function describeStyleChange(el: HTMLElement, prop: string, before: string, after: string) {
     const sel = formatSelector(el);
+    const source = await resolveSource(el);
     const zh = `请将 ${sel} 的 ${prop} 从 ${before || '默认值'} 调整为 ${after || '默认值'}。`;
     const en = `Please change ${sel} ${prop} from ${before || 'default'} to ${after || 'default'}.`;
-    const patch = `${sel} { ${prop}: ${after}; }`;
+    const patch = buildUnifiedPatch(source, `${prop}: ${before};`, `${prop}: ${after};`, prop);
     pushChange(zh, en, patch);
   }
 
-  function captureElementMutation(el: HTMLElement) {
+  async function captureElementMutation(el: HTMLElement) {
     if (!el || isOwn(el)) return;
     const existing = snap.get(el);
     if (!existing) {
       snap.set(el, takeSnapshot(el));
+      const source = await resolveSource(el);
       pushChange(
         `请调整元素 ${formatSelector(el)} 的样式或布局。`,
         `Please adjust style or layout of ${formatSelector(el)}.`,
+        buildUnifiedPatch(source, '/* layout before */', '/* layout after */', 'layout'),
       );
       return;
     }
@@ -133,16 +162,18 @@
 
     if (prev.text !== next.text) {
       const sel = formatSelector(el);
+      const source = await resolveSource(el);
       pushChange(
         `请将 ${sel} 的文本从“${prev.text || '空'}”修改为“${next.text || '空'}”。`,
         `Please update text of ${sel} from "${prev.text || 'empty'}" to "${next.text || 'empty'}".`,
+        buildUnifiedPatch(source, prev.text, next.text, 'text'),
       );
     }
 
     for (const prop of TRACKED_STYLE_PROPS) {
       const b = prev.styles[prop];
       const a = next.styles[prop];
-      if (b !== a) describeStyleChange(el, prop, b, a);
+      if (b !== a) await describeStyleChange(el, prop, b, a);
     }
 
     snap.set(el, next);
@@ -701,6 +732,7 @@
 
       if (app.ws?.readyState === WebSocket.OPEN) {
         extractSourceInfo(t).then(sourceInfo => {
+          sourceCache.set(t, { file: (sourceInfo as any)?.file, line: (sourceInfo as any)?.line });
           if (app.ws?.readyState === WebSocket.OPEN) {
             app.ws.send(JSON.stringify({ type: 'element-selected', selector: getSelector(t), tagName: t.tagName.toLowerCase(), className: t.className || '', textContent: t.textContent?.trim().slice(0, 100) || '', sourceInfo, rect: t.getBoundingClientRect().toJSON() }));
           }
@@ -750,26 +782,31 @@
       for (const m of mutations) {
         if (m.type === 'attributes' || m.type === 'characterData') {
           const target = (m.target instanceof HTMLElement ? m.target : m.target.parentElement) as HTMLElement | null;
-          if (target) captureElementMutation(target);
+          if (target) { void captureElementMutation(target); }
         }
 
         if (m.type === 'childList') {
           m.addedNodes.forEach((n) => {
             if (n instanceof HTMLElement && !isOwn(n)) {
               const sel = formatSelector(n);
-              pushChange(
-                `请新增元素 ${sel}。`,
-                `Please add element ${sel}.`,
-              );
+              void resolveSource(n).then((source) => {
+                pushChange(
+                  `请新增元素 ${sel}。`,
+                  `Please add element ${sel}.`,
+                  buildUnifiedPatch(source, '/* element missing */', `<${n.tagName.toLowerCase()}>...</${n.tagName.toLowerCase()}>`, 'structure'),
+                );
+              });
               snap.set(n, takeSnapshot(n));
             }
           });
           m.removedNodes.forEach((n) => {
             if (n instanceof HTMLElement && !isOwn(n)) {
               const sel = formatSelector(n);
+              const source = sourceCache.get(n);
               pushChange(
                 `请删除元素 ${sel}。`,
                 `Please remove element ${sel}.`,
+                buildUnifiedPatch(source, `<${n.tagName.toLowerCase()}>...</${n.tagName.toLowerCase()}>`, '/* removed */', 'structure'),
               );
             }
           });

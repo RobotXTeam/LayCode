@@ -86,6 +86,12 @@ curl -X POST http://localhost:8787/projects/html-local/start \
   -d '{"sourceType":"local","localPath":"/absolute/path/to/samples/html-bootstrap"}'
 ```
 
+或者直接运行自动化自测脚本：
+
+```bash
+./scripts/self-test-local-import.sh
+```
+
 ## 7. 注意事项
 
 - 所有操作默认在本地完成，不会主动上传代码到云端。
