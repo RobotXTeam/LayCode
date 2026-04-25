@@ -1,30 +1,73 @@
 @import "tailwindcss";
 
 @theme inline {
-  --color-background: #09090b;
-  --color-foreground: #fafafa;
-  --color-card: rgba(24, 24, 27, 0.92);
-  --color-card-foreground: #fafafa;
-  --color-popover: #18181b;
-  --color-primary: #fafafa;
-  --color-primary-foreground: #09090b;
-  --color-secondary: rgba(228, 228, 231, 0.05);
-  --color-muted: rgba(228, 228, 231, 0.05);
-  --color-muted-foreground: #a1a1aa;
-  --color-accent: rgba(250, 250, 250, 0.12);
-  --color-accent-foreground: #fafafa;
-  --color-destructive: #fb7185;
-  --color-success: #4ade80;
-  --color-border: rgba(228, 228, 231, 0.07);
-  --color-input: rgba(228, 228, 231, 0.1);
-  --color-ring: #71717a;
+  --color-background: #f6f7f9;
+  --color-foreground: #151821;
+  --color-card: rgba(255, 255, 255, 0.72);
+  --color-card-foreground: #151821;
+  --color-popover: #ffffff;
+  --color-primary: #151821;
+  --color-primary-foreground: #f8fafc;
+  --color-secondary: rgba(15, 23, 42, 0.05);
+  --color-muted: rgba(15, 23, 42, 0.05);
+  --color-muted-foreground: #5b6578;
+  --color-accent: rgba(15, 23, 42, 0.08);
+  --color-accent-foreground: #151821;
+  --color-destructive: #d54963;
+  --color-success: #16886a;
+  --color-border: rgba(15, 23, 42, 0.12);
+  --color-input: rgba(15, 23, 42, 0.16);
+  --color-ring: #2f3f63;
 }
 
 body {
-  background-color: var(--color-background);
+  background:
+    radial-gradient(circle at 20% -10%, rgba(81, 114, 207, 0.12), transparent 35%),
+    radial-gradient(circle at 85% 0%, rgba(20, 168, 131, 0.1), transparent 28%),
+    linear-gradient(180deg, #f7f8fb 0%, #eef2f6 100%);
   color: var(--color-foreground);
+  min-height: 100vh;
 }
 
 a, button, [role="button"] {
   cursor: pointer;
+}
+
+.bg-card {
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 8px 30px rgba(20, 24, 33, 0.06);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-background: #0a0d12;
+    --color-foreground: #f1f4fb;
+    --color-card: rgba(18, 23, 35, 0.74);
+    --color-card-foreground: #f1f4fb;
+    --color-popover: #111625;
+    --color-primary: #f1f4fb;
+    --color-primary-foreground: #0a0d12;
+    --color-secondary: rgba(241, 244, 251, 0.06);
+    --color-muted: rgba(241, 244, 251, 0.06);
+    --color-muted-foreground: #9ca8c1;
+    --color-accent: rgba(241, 244, 251, 0.1);
+    --color-accent-foreground: #f1f4fb;
+    --color-destructive: #fb7185;
+    --color-success: #4ade80;
+    --color-border: rgba(241, 244, 251, 0.1);
+    --color-input: rgba(241, 244, 251, 0.16);
+    --color-ring: #8da0d7;
+  }
+
+  body {
+    background:
+      radial-gradient(circle at 20% -10%, rgba(86, 127, 250, 0.2), transparent 35%),
+      radial-gradient(circle at 85% 0%, rgba(28, 196, 153, 0.16), transparent 30%),
+      linear-gradient(180deg, #0c1017 0%, #080b11 100%);
+  }
+
+  .bg-card {
+    box-shadow: 0 10px 32px rgba(0, 0, 0, 0.32);
+  }
 }

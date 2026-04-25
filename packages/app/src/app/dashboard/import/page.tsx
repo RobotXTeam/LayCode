@@ -2,6 +2,7 @@ import { getSession } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { listRepos } from "@/lib/github";
 import { RepoSelector } from "./repo-selector";
+import { LocalProjectForm } from "./local-project-form";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
@@ -16,59 +17,51 @@ function GithubIcon({ className }: { className?: string }) {
 export default async function NewProjectPage() {
   const session = await getSession();
   if (!session.userId) redirect("/sign-in");
-
-  if (!session.githubToken) {
-    return (
-      <div>
-        <Link href="/dashboard" className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-6">
-          <ArrowLeft className="h-3 w-3" />
-          Projects
-        </Link>
-        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-16">
-          <div className="mb-4 rounded-full bg-secondary p-3">
-            <GithubIcon className="h-5 w-5 text-muted-foreground" />
-          </div>
-          <p className="mb-1 text-sm font-medium">Connect your GitHub account</p>
-          <p className="mb-6 text-xs text-muted-foreground max-w-xs text-center">
-            To import repositories, you need to connect your GitHub account.
-          </p>
-          <a
-            href="/api/auth/github"
-            className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-md text-xs font-semibold hover:opacity-90 transition-opacity"
-          >
-            <GithubIcon className="h-3.5 w-3.5" />
-            Connect GitHub
-          </a>
-        </div>
-      </div>
-    );
-  }
-
-  let repos;
-  try {
-    repos = await listRepos(session.githubToken);
-  } catch {
-    return (
-      <div>
-        <Link href="/dashboard" className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-6">
-          <ArrowLeft className="h-3 w-3" />
-          Projects
-        </Link>
-        <div className="flex flex-col items-center justify-center py-16">
-          <p className="text-sm text-muted-foreground">Failed to load repositories. Please try again.</p>
-          <a href="/api/auth/github" className="mt-4 text-xs text-muted-foreground hover:text-foreground transition-colors">
-            Reconnect GitHub
-          </a>
-        </div>
-      </div>
-    );
+  let repos: Awaited<ReturnType<typeof listRepos>> | null = null;
+  if (session.githubToken) {
+    try {
+      repos = await listRepos(session.githubToken);
+    } catch {
+      repos = null;
+    }
   }
 
   return (
     <div>
-      <h1 className="mb-2 text-xl font-bold">Import from GitHub</h1>
-      <p className="mb-8 text-sm text-muted-foreground">Select a repository to start editing visually.</p>
-      <RepoSelector repos={repos} />
+      <Link href="/dashboard" className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-6">
+        <ArrowLeft className="h-3 w-3" />
+        Projects
+      </Link>
+
+      <h1 className="mb-2 text-xl font-bold">Import Project</h1>
+      <p className="mb-6 text-sm text-muted-foreground">导入本地目录或 GitHub 仓库，开始可视化编辑。</p>
+
+      <div className="grid gap-5">
+        <LocalProjectForm />
+
+        <div className="rounded-xl bg-card p-5 ring-1 ring-foreground/10">
+          <h2 className="text-sm font-semibold">Import from GitHub</h2>
+          <p className="mt-1 text-xs text-muted-foreground">选择 GitHub 仓库进行导入。</p>
+
+          {!session.githubToken && (
+            <div className="mt-4 flex flex-col items-start gap-3 rounded-lg border border-dashed border-border p-4">
+              <p className="text-xs text-muted-foreground">尚未连接 GitHub 账号</p>
+              <a
+                href="/api/auth/github"
+                className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-md text-xs font-semibold hover:opacity-90 transition-opacity"
+              >
+                <GithubIcon className="h-3.5 w-3.5" />
+                Connect GitHub
+              </a>
+            </div>
+          )}
+
+          {session.githubToken && repos && <div className="mt-4"><RepoSelector repos={repos} /></div>}
+          {session.githubToken && !repos && (
+            <p className="mt-4 text-xs text-muted-foreground">仓库加载失败，请稍后重试或重新连接 GitHub。</p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

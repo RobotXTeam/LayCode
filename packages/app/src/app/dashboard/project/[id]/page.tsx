@@ -6,6 +6,7 @@ import { redirect, notFound } from "next/navigation";
 import { ContainerControls } from "./controls";
 import { ProjectActions } from "./project-actions";
 import { EditHistory } from "./edit-history";
+import { FileTree } from "./file-tree";
 import { ArrowLeft, ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { DeleteButton } from "../../delete-button";
@@ -70,6 +71,11 @@ export default async function ProjectPage({
                   <ExternalLink className="h-2.5 w-2.5" />
                 </a>
               )}
+              {project.sourceType === "local" && project.localPath && (
+                <span className="rounded-md bg-secondary px-2 py-1 text-[10px] text-muted-foreground">
+                  local: {project.localPath}
+                </span>
+              )}
             </div>
           </div>
           <DeleteButton projectId={project.id} />
@@ -88,6 +94,7 @@ export default async function ProjectPage({
           />
         </div>
 
+        <FileTree projectId={project.id} />
 
         {/* Actions */}
         <ProjectActions projectId={project.id} branch={project.branch} githubRepo={project.githubRepo} sharePassword={project.sharePassword} hasGithub={!!session.githubToken} />

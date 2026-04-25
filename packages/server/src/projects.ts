@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess, execSync } from 'child_process';
-import { existsSync, mkdirSync, readFileSync } from 'fs';
-import { join } from 'path';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'fs';
+import { join, resolve } from 'path';
 import { createServer } from 'net';
 import { randomUUID } from 'crypto';
 
@@ -18,6 +18,8 @@ export interface ProjectProcess {
   id: string;
   githubRepo: string;
   branch: string;
+  sourceType: 'github' | 'template' | 'local';
+  localPath?: string;
   framework: string | null;
   devProcess: ChildProcess | null;
   proxyProcess: ChildProcess | null;
@@ -77,9 +79,18 @@ function detectPackageManager(workDir: string): string {
 }
 
 function detectFramework(workDir: string): string {
+  const hasHtmlEntry = existsSync(join(workDir, 'index.html'))
+    || readdirSync(workDir, { withFileTypes: true }).some((f) => f.isFile() && f.name.endsWith('.html'));
+
+  if (!existsSync(join(workDir, 'package.json'))) {
+    return hasHtmlEntry ? 'html' : 'unknown';
+  }
+
   try {
     const pkg = JSON.parse(readFileSync(join(workDir, 'package.json'), 'utf-8'));
     const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+    const scripts = pkg.scripts || {};
+    if (deps['react-scripts']) return 'cra';
     if (deps['next']) return 'nextjs';
     if (deps['astro']) return 'astro';
     if (deps['nuxt']) return 'nuxt';
@@ -87,12 +98,17 @@ function detectFramework(workDir: string): string {
     if (deps['@sveltejs/kit']) return 'sveltekit';
     if (deps['vue']) return 'vue';
     if (deps['react']) return 'react';
+    if (scripts.dev) return 'generic-node';
   } catch {}
-  return 'unknown';
+  return hasHtmlEntry ? 'html' : 'unknown';
 }
 
 function getDevCommand(framework: string, pm: string, port: number): { cmd: string; args: string[] } {
   switch (framework) {
+    case 'html':
+      return { cmd: 'npx', args: ['--yes', 'serve', '-l', String(port), '.'] };
+    case 'cra':
+      return { cmd: pm, args: ['run', 'start'] };
     case 'nextjs':
       return { cmd: 'npx', args: ['next', 'dev', '-p', String(port), '-H', '0.0.0.0'] };
     case 'nuxt':
@@ -167,7 +183,18 @@ function spawnSandboxed(cmd: string, args: string[], opts: any, workDir: string)
 
 // ── startProject ──
 
-export async function startProject(id: string, githubRepo: string, branch: string, githubToken: string, gitUsername?: string, gitEmail?: string, sharePassword?: string, slug?: string): Promise<ProjectProcess> {
+export async function startProject(
+  id: string,
+  githubRepo: string,
+  branch: string,
+  githubToken: string,
+  sourceType: 'github' | 'template' | 'local' = 'github',
+  localPath?: string,
+  gitUsername?: string,
+  gitEmail?: string,
+  sharePassword?: string,
+  slug?: string,
+): Promise<ProjectProcess> {
   const existing = projects.get(id);
   if (existing && existing.status === 'running') return existing;
 
@@ -178,11 +205,11 @@ export async function startProject(id: string, githubRepo: string, branch: strin
 
   const devPort = await allocatePort(DEV_PORT_START, DEV_PORT_END, usedDevPorts);
   const proxyPort = await allocatePort(PROXY_PORT_START, PROXY_PORT_END, usedProxyPorts);
-  const workDir = join(WORKSPACE_DIR, id);
+  const workDir = sourceType === 'local' ? resolve(localPath || '') : join(WORKSPACE_DIR, id);
 
   const accessToken = randomUUID();
   const project: ProjectProcess = {
-    id, githubRepo, branch,
+    id, githubRepo, branch, sourceType, localPath,
     framework: null,
     devProcess: null, proxyProcess: null,
     devPort, proxyPort,
@@ -196,29 +223,42 @@ export async function startProject(id: string, githubRepo: string, branch: strin
   projects.set(id, project);
 
   try {
-    mkdirSync(WORKSPACE_DIR, { recursive: true });
-
-    if (existsSync(join(workDir, '.git'))) {
-      addLog(project, 'Workspace exists, reusing...');
-    } else if (githubRepo && githubToken) {
-      addLog(project, `Cloning ${githubRepo}...`);
-      execSync(`git clone --depth 1 --branch ${branch} https://x-access-token:${githubToken}@github.com/${githubRepo}.git ${workDir}`, { stdio: 'pipe' });
+    if (sourceType === 'local') {
+      if (!workDir || !existsSync(workDir) || !statSync(workDir).isDirectory()) {
+        throw new Error('Local project path is invalid or does not exist');
+      }
+      addLog(project, `Using local workspace: ${workDir}`);
     } else {
-      throw new Error('No workspace found and no GitHub repo to clone. Try "Fresh Clone" or create a new project.');
+      mkdirSync(WORKSPACE_DIR, { recursive: true });
+      if (existsSync(join(workDir, '.git'))) {
+        addLog(project, 'Workspace exists, reusing...');
+      } else if (githubRepo && githubToken) {
+        addLog(project, `Cloning ${githubRepo}...`);
+        execSync(`git clone --depth 1 --branch ${branch} https://x-access-token:${githubToken}@github.com/${githubRepo}.git ${workDir}`, { stdio: 'pipe' });
+      } else {
+        throw new Error('No workspace found and no GitHub repo to clone. Try "Fresh Clone" or create a new project.');
+      }
     }
 
     const email = gitEmail || 'layrr@layrr.dev';
     const name = gitUsername || 'Layrr';
-    execSync(`git config user.email "${email}" && git config user.name "${name}"`, { cwd: workDir, stdio: 'pipe' });
+    if (existsSync(join(workDir, '.git'))) {
+      execSync(`git config user.email "${email}" && git config user.name "${name}"`, { cwd: workDir, stdio: 'pipe' });
+    }
 
     const pm = detectPackageManager(workDir);
     project.framework = detectFramework(workDir);
     addLog(project, `Framework: ${project.framework}, PM: ${pm}`);
 
-    project.stage = 'installing';
-    addLog(project, 'Installing dependencies...');
-    execSync(`${pm} install`, { cwd: workDir, stdio: 'pipe', timeout: 120000 });
-    addLog(project, 'Dependencies installed');
+    const hasPackageJson = existsSync(join(workDir, 'package.json'));
+    if (hasPackageJson) {
+      project.stage = 'installing';
+      addLog(project, 'Installing dependencies...');
+      execSync(`${pm} install`, { cwd: workDir, stdio: 'pipe', timeout: 600000 });
+      addLog(project, 'Dependencies installed');
+    } else {
+      addLog(project, 'No package.json found, using static HTML mode');
+    }
 
     project.stage = 'dev-server';
     const devCmd = getDevCommand(project.framework, pm, devPort);
@@ -226,7 +266,7 @@ export async function startProject(id: string, githubRepo: string, branch: strin
     project.devProcess = spawnSandboxed(devCmd.cmd, devCmd.args, {
       cwd: workDir,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...safeEnv(), PORT: String(devPort), HOST: '0.0.0.0' },
+      env: { ...safeEnv(), PORT: String(devPort), HOST: '0.0.0.0', BROWSER: 'none' },
       detached: true,
     }, workDir);
     project.devProcess.stdout?.on('data', (d: Buffer) => addLog(project, d.toString().trim()));
@@ -290,7 +330,7 @@ export async function createFromTemplate(id: string, name: string, prompt: strin
 
   const accessToken = randomUUID();
   const project: ProjectProcess = {
-    id, githubRepo: '', branch: 'main', framework: 'nextjs',
+    id, githubRepo: '', branch: 'main', sourceType: 'template', framework: 'nextjs',
     devProcess: null, proxyProcess: null, devPort, proxyPort,
     status: 'starting', stage: 'setup', logs: [], workDir, accessToken, slug,
   };
@@ -307,7 +347,7 @@ export async function createFromTemplate(id: string, name: string, prompt: strin
 
     project.stage = 'installing';
     addLog(project, 'Installing dependencies...');
-    execSync('pnpm install', { cwd: workDir, stdio: 'pipe', timeout: 120000 });
+    execSync('pnpm install', { cwd: workDir, stdio: 'pipe', timeout: 600000 });
 
     project.stage = 'dev-server';
     const devCmd = getDevCommand('nextjs', 'pnpm', devPort);
@@ -465,7 +505,7 @@ export function getProjectBySlug(slug: string): ProjectProcess | undefined {
 // ── getEditCount / getEditHistory / getLogs ──
 
 export function getEditCount(id: string): number {
-  const workDir = join(WORKSPACE_DIR, id);
+  const workDir = projects.get(id)?.workDir || join(WORKSPACE_DIR, id);
   try {
     if (existsSync(join(workDir, '.git'))) {
       const log = execSync('git log --oneline --grep="\\[layrr\\]" 2>/dev/null || echo ""', { cwd: workDir, encoding: 'utf-8' }).trim();
@@ -480,7 +520,7 @@ export function getProjectLogs(id: string): string[] {
 }
 
 export function getEditHistory(id: string): Array<{ message: string; timeAgo: string; hash: string }> {
-  const workDir = join(WORKSPACE_DIR, id);
+  const workDir = projects.get(id)?.workDir || join(WORKSPACE_DIR, id);
   if (!existsSync(join(workDir, '.git'))) return [];
   try {
     const log = execSync('git log --grep="\\[layrr\\]" --format="%H|%s|%ar" -20 2>/dev/null || echo ""', { cwd: workDir, encoding: 'utf-8' }).trim();

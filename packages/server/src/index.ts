@@ -78,10 +78,10 @@ app.use('*', async (c, next) => {
 // Start a project
 app.post('/projects/:id/start', async (c) => {
   const { id } = c.req.param();
-  const { githubRepo, branch, githubToken, gitUsername, gitEmail, sharePassword, slug } = await c.req.json();
+  const { githubRepo, branch, githubToken, sourceType, localPath, gitUsername, gitEmail, sharePassword, slug } = await c.req.json();
 
   try {
-    const project = await startProject(id, githubRepo, branch || 'main', githubToken, gitUsername, gitEmail, sharePassword, slug);
+    const project = await startProject(id, githubRepo, branch || 'main', githubToken, sourceType || 'github', localPath, gitUsername, gitEmail, sharePassword, slug);
     return c.json({
       status: project.status,
       proxyPort: project.proxyPort,

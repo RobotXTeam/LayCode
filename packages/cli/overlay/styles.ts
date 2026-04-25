@@ -265,6 +265,23 @@ export function injectStyles() {
     .${L}-hn{padding:0 10px 6px;font-size:${size.xs};color:${C.textDim};display:flex;gap:10px}
     .${L}-hn kbd{background:${C.surface};border-radius:3px;padding:1px 4px;font-family:inherit;font-size:${size.xs};border:1px solid ${C.border};color:${C.accent}}
 
+    /* ---- Captured change notes ---- */
+    .${L}-cg{padding:0 10px 10px}
+    .${L}-cg-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+    .${L}-cg-title{font-size:${size.sm};text-transform:uppercase;letter-spacing:.06em;color:${C.textMuted};font-weight:700}
+    .${L}-cg-actions{display:flex;gap:4px}
+    .${L}-cg-actions button{
+      border:1px solid ${C.border};background:${C.surface};color:${C.textMuted};
+      border-radius:${radius.md};padding:2px 6px;font-size:${size.xs};cursor:pointer;
+      font-family:${mono};transition:${transition};
+    }
+    .${L}-cg-actions button:hover{color:${C.text};border-color:rgba(161,161,170,.35)}
+    .${L}-cg-list{max-height:120px;overflow-y:auto;display:flex;flex-direction:column;gap:4px}
+    .${L}-cg-item{background:${C.surface};border:1px solid ${C.border};border-radius:${radius.md};padding:6px 8px}
+    .${L}-cg-text{font-size:${size.md};color:${C.textMuted};line-height:1.45}
+    .${L}-cg-patch{font-size:${size.xs};color:${C.accent};margin-top:4px;white-space:pre-wrap}
+    .${L}-cg-empty{font-size:${size.sm};color:${C.textDim};padding:8px 4px;text-align:center}
+
     /* ---- Multi-select ---- */
     .${L}-sel-count{
       display:inline-flex;align-items:center;justify-content:center;

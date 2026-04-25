@@ -51,6 +51,8 @@ export const app = {
   spinnerTimeout: null as ReturnType<typeof setTimeout> | null,
   lastEditTimestamp: 0,
   previewingHash: sessionStorage.getItem('__layrr_preview') || null as string | null,
+  changeLog: [] as Array<{ id: string; zh: string; en: string; patch?: string; at: number }>,
+  changeLanguage: (sessionStorage.getItem('__layrr_lang') || 'zh') as 'zh' | 'en',
 };
 
 export function initState(saved: any) {

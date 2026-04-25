@@ -48,6 +48,121 @@
   const saved = loadState();
   initState(saved);
 
+  const TRACKED_STYLE_PROPS = [
+    'width', 'height', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
+    'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+    'color', 'background-color', 'border-color', 'border-radius', 'box-shadow',
+    'font-size', 'font-weight', 'opacity', 'position', 'top', 'right', 'bottom', 'left',
+  ];
+
+  type Snapshot = {
+    text: string;
+    styles: Record<string, string>;
+  };
+
+  const snap = new WeakMap<HTMLElement, Snapshot>();
+
+  function formatSelector(el: HTMLElement): string {
+    const id = el.id ? `#${el.id}` : '';
+    const cls = typeof el.className === 'string' && el.className.trim()
+      ? `.${el.className.trim().split(/\s+/).slice(0, 2).join('.')}`
+      : '';
+    return `${el.tagName.toLowerCase()}${id || cls || ''}`;
+  }
+
+  function takeSnapshot(el: HTMLElement): Snapshot {
+    const cs = getComputedStyle(el);
+    const styles: Record<string, string> = {};
+    for (const p of TRACKED_STYLE_PROPS) styles[p] = cs.getPropertyValue(p).trim();
+    return {
+      text: (el.textContent || '').trim().slice(0, 200),
+      styles,
+    };
+  }
+
+  function pushChange(zh: string, en: string, patch?: string) {
+    app.changeLog.unshift({ id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`, zh, en, patch, at: Date.now() });
+    if (app.changeLog.length > 100) app.changeLog = app.changeLog.slice(0, 100);
+    renderChangeLog();
+  }
+
+  function renderChangeLog() {
+    const panel = app.panelEl;
+    if (!panel) return;
+    const list = panel.querySelector(`.${L}-cg-list`) as HTMLElement | null;
+    const langBtn = panel.querySelector(`.${L}-cg-lang`) as HTMLElement | null;
+    if (!list) return;
+
+    if (langBtn) {
+      langBtn.textContent = app.changeLanguage === 'zh' ? '中' : 'EN';
+    }
+
+    if (app.changeLog.length === 0) {
+      list.innerHTML = `<div class="${L}-cg-empty">${app.changeLanguage === 'zh' ? '尚无可导出的改动记录' : 'No captured changes yet'}</div>`;
+      return;
+    }
+
+    list.innerHTML = app.changeLog.slice(0, 20).map((item) => {
+      const text = app.changeLanguage === 'zh' ? item.zh : item.en;
+      const patch = item.patch ? `<div class="${L}-cg-patch">${item.patch.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>` : '';
+      return `<div class="${L}-cg-item"><div class="${L}-cg-text">${text.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>${patch}</div>`;
+    }).join('');
+  }
+
+  function describeStyleChange(el: HTMLElement, prop: string, before: string, after: string) {
+    const sel = formatSelector(el);
+    const zh = `请将 ${sel} 的 ${prop} 从 ${before || '默认值'} 调整为 ${after || '默认值'}。`;
+    const en = `Please change ${sel} ${prop} from ${before || 'default'} to ${after || 'default'}.`;
+    const patch = `${sel} { ${prop}: ${after}; }`;
+    pushChange(zh, en, patch);
+  }
+
+  function captureElementMutation(el: HTMLElement) {
+    if (!el || isOwn(el)) return;
+    const existing = snap.get(el);
+    if (!existing) {
+      snap.set(el, takeSnapshot(el));
+      pushChange(
+        `请调整元素 ${formatSelector(el)} 的样式或布局。`,
+        `Please adjust style or layout of ${formatSelector(el)}.`,
+      );
+      return;
+    }
+    const prev = existing;
+    const next = takeSnapshot(el);
+
+    if (prev.text !== next.text) {
+      const sel = formatSelector(el);
+      pushChange(
+        `请将 ${sel} 的文本从“${prev.text || '空'}”修改为“${next.text || '空'}”。`,
+        `Please update text of ${sel} from "${prev.text || 'empty'}" to "${next.text || 'empty'}".`,
+      );
+    }
+
+    for (const prop of TRACKED_STYLE_PROPS) {
+      const b = prev.styles[prop];
+      const a = next.styles[prop];
+      if (b !== a) describeStyleChange(el, prop, b, a);
+    }
+
+    snap.set(el, next);
+  }
+
+  function exportChangeLog() {
+    const lines = app.changeLog.map((item, idx) => {
+      const text = app.changeLanguage === 'zh' ? item.zh : item.en;
+      return `${idx + 1}. ${text}${item.patch ? `\n   - patch: ${item.patch}` : ''}`;
+    });
+    const content = `# LayCode Change Notes\n\n${lines.join('\n\n')}\n`;
+    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `laycode-changes-${Date.now()}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   // ---- Panel helpers ----
   function showPanel(panel: HTMLElement) {
     const bar = document.getElementById(`${L}-bar`);
@@ -421,6 +536,11 @@
     const histBtn = bar.querySelector(`.${L}-bhi`) as HTMLElement;
     const histPanel = document.getElementById(`${L}-history`) as HTMLElement;
     const barDrag = bar.querySelector(`.${L}-bd`) as HTMLElement;
+    const langBtn = panel.querySelector(`.${L}-cg-lang`) as HTMLButtonElement | null;
+    const copyBtn = panel.querySelector(`.${L}-cg-copy`) as HTMLButtonElement | null;
+    const exportBtn = panel.querySelector(`.${L}-cg-export`) as HTMLButtonElement | null;
+
+    renderChangeLog();
 
     app.inputEl.addEventListener('input', () => { app.inputEl!.style.height = 'auto'; app.inputEl!.style.height = Math.min(app.inputEl!.scrollHeight, 72) + 'px'; });
     browseBtn.addEventListener('click', () => setMode('browse'));
@@ -428,6 +548,22 @@
     closeBtn.addEventListener('click', () => { setMode('browse'); app.hoveredEl = null; });
     app.sendBtnEl.addEventListener('click', sendEdit);
     app.inputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendEdit(); } });
+    langBtn?.addEventListener('click', () => {
+      app.changeLanguage = app.changeLanguage === 'zh' ? 'en' : 'zh';
+      sessionStorage.setItem('__layrr_lang', app.changeLanguage);
+      renderChangeLog();
+    });
+    copyBtn?.addEventListener('click', async () => {
+      const text = app.changeLog.map((item, idx) => `${idx + 1}. ${app.changeLanguage === 'zh' ? item.zh : item.en}`).join('\n');
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        toast(app.changeLanguage === 'zh' ? '描述已复制' : 'Copied change notes', 'success');
+      } catch {
+        toast(app.changeLanguage === 'zh' ? '复制失败' : 'Copy failed', 'error');
+      }
+    });
+    exportBtn?.addEventListener('click', () => exportChangeLog());
 
     // History toggle
     histBtn.addEventListener('click', () => {
@@ -552,6 +688,7 @@
         showPanel(panel);
         updatePanelForSelection();
         setTimeout(() => input.focus(), 50);
+        if (app.selectedEl) snap.set(app.selectedEl, takeSnapshot(app.selectedEl));
       } else {
         app.selectedEl = t;
         app.selectedEls = [t];
@@ -559,6 +696,7 @@
         posHL(t, hl); hl.classList.add('selected'); label.style.display = 'none'; showPanel(panel);
         updatePanelForSelection();
         input.value = ''; input.style.height = 'auto'; setTimeout(() => input.focus(), 50);
+        snap.set(t, takeSnapshot(t));
       }
 
       if (app.ws?.readyState === WebSocket.OPEN) {
@@ -603,12 +741,47 @@
     setupGlobalListeners(); // Only once — references app.* for current DOM
 
     let reinjectTimer: ReturnType<typeof setTimeout> | null = null;
-    new MutationObserver(() => {
+    new MutationObserver((mutations) => {
       if (!document.querySelector(`.${L}-root`) && document.body) {
         if (reinjectTimer) clearTimeout(reinjectTimer);
         reinjectTimer = setTimeout(() => { reinjectTimer = null; reinjectIfNeeded(); }, 50);
       }
-    }).observe(document.documentElement, { childList: true, subtree: true });
+
+      for (const m of mutations) {
+        if (m.type === 'attributes' || m.type === 'characterData') {
+          const target = (m.target instanceof HTMLElement ? m.target : m.target.parentElement) as HTMLElement | null;
+          if (target) captureElementMutation(target);
+        }
+
+        if (m.type === 'childList') {
+          m.addedNodes.forEach((n) => {
+            if (n instanceof HTMLElement && !isOwn(n)) {
+              const sel = formatSelector(n);
+              pushChange(
+                `请新增元素 ${sel}。`,
+                `Please add element ${sel}.`,
+              );
+              snap.set(n, takeSnapshot(n));
+            }
+          });
+          m.removedNodes.forEach((n) => {
+            if (n instanceof HTMLElement && !isOwn(n)) {
+              const sel = formatSelector(n);
+              pushChange(
+                `请删除元素 ${sel}。`,
+                `Please remove element ${sel}.`,
+              );
+            }
+          });
+        }
+      }
+    }).observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      characterData: true,
+      attributeFilter: ['style', 'class'],
+    });
 
     // Framework-specific navigation events
     document.addEventListener('astro:after-swap', reinjectIfNeeded);

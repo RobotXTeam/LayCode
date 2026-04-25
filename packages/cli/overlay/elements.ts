@@ -42,6 +42,17 @@ export function createElements() {
         </div>
       </div>
       <div class="${L}-hn"><span><kbd>Enter</kbd> send</span><span><kbd>Esc</kbd> close</span></div>
+      <div class="${L}-cg">
+        <div class="${L}-cg-head">
+          <div class="${L}-cg-title">Change Notes</div>
+          <div class="${L}-cg-actions">
+            <button class="${L}-cg-lang" data-lang="zh">中</button>
+            <button class="${L}-cg-copy">Copy</button>
+            <button class="${L}-cg-export">Export</button>
+          </div>
+        </div>
+        <div class="${L}-cg-list"></div>
+      </div>
     </div>
     <div id="${L}-history">
       <div class="${L}-hh">History</div>
