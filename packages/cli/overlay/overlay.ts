@@ -773,11 +773,15 @@
     setupGlobalListeners(); // Only once — references app.* for current DOM
 
     let reinjectTimer: ReturnType<typeof setTimeout> | null = null;
+    const captureReadyAt = Date.now() + 1500;
     new MutationObserver((mutations) => {
       if (!document.querySelector(`.${L}-root`) && document.body) {
         if (reinjectTimer) clearTimeout(reinjectTimer);
         reinjectTimer = setTimeout(() => { reinjectTimer = null; reinjectIfNeeded(); }, 50);
       }
+
+      // Keep reinjection checks always-on, but only capture expensive change logs in edit mode.
+      if (app.mode !== 'edit' || Date.now() < captureReadyAt) return;
 
       for (const m of mutations) {
         if (m.type === 'attributes' || m.type === 'characterData') {
