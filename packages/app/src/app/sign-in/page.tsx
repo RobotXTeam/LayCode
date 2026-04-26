@@ -22,7 +22,7 @@ function GoogleIcon({ className }: { className?: string }) {
 export default function SignInPage() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center px-4">
-      <h1 className="mb-2 text-3xl font-bold tracking-tight">layrr</h1>
+      <h1 className="mb-2 text-3xl font-bold tracking-tight">LayCode</h1>
       <p className="mb-8 text-sm text-muted-foreground">Sign in to start building</p>
       <div className="flex flex-col gap-3 w-full max-w-[240px]">
         <a

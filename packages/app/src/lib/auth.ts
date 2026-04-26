@@ -2,6 +2,10 @@ import { GitHub, Google } from "arctic";
 import { getIronSession } from "iron-session";
 import { cookies } from "next/headers";
 
+export function isLocalModeEnabled() {
+  return process.env.LAYCODE_LOCAL_MODE !== "false";
+}
+
 export const github = new GitHub(
   process.env.GITHUB_CLIENT_ID!,
   process.env.GITHUB_CLIENT_SECRET!,
@@ -23,15 +27,31 @@ export interface SessionData {
   displayName?: string;
 }
 
-export async function getSession() {
+export interface AppSession extends SessionData {
+  save: () => Promise<void>;
+  destroy: () => void;
+}
+
+export async function getSession(): Promise<AppSession> {
+  if (isLocalModeEnabled()) {
+    return {
+      userId: "local-user",
+      displayName: "Local User",
+      githubUsername: "local",
+      githubToken: undefined,
+      save: async () => {},
+      destroy: () => {},
+    } as AppSession;
+  }
+
   const cookieStore = await cookies();
   return getIronSession<SessionData>(cookieStore, {
     password: process.env.SESSION_SECRET!,
-    cookieName: "layrr_session",
+    cookieName: "laycode_session",
     cookieOptions: {
       secure: process.env.NODE_ENV === "production",
       httpOnly: true,
       sameSite: "lax",
     },
-  });
+  }) as Promise<AppSession>;
 }

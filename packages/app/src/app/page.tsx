@@ -7,7 +7,7 @@ export default async function HomePage() {
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center px-4">
-      <h1 className="mb-3 text-4xl sm:text-5xl font-bold tracking-tight">layrr</h1>
+      <h1 className="mb-3 text-4xl sm:text-5xl font-bold tracking-tight">LayCode</h1>
       <p className="mb-8 max-w-md text-center text-sm text-muted-foreground leading-relaxed">
         Build websites by describing what you want. Edit anything by clicking on it.
       </p>

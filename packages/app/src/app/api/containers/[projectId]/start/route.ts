@@ -42,7 +42,7 @@ export async function POST(
     user?.githubToken || '',
     project.sourceType as 'github' | 'template' | 'local',
     project.localPath || undefined,
-    user?.githubUsername || 'layrr',
+    user?.githubUsername || 'laycode',
     user?.email || '',
     project.sharePassword || undefined,
     session.userId,

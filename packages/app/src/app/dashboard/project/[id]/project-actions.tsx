@@ -183,7 +183,7 @@ function LinkGithubAction({ projectId }: { projectId: string }) {
 function GitHubActions({ projectId, branch }: { projectId: string; branch: string }) {
   const [showPush, setShowPush] = useState(false);
   const [showFreshClone, setShowFreshClone] = useState(false);
-  const [pushBranch, setPushBranch] = useState(`layrr/${branch}`);
+  const [pushBranch, setPushBranch] = useState(`laycode/${branch}`);
   const [pushing, setPushing] = useState(false);
   const [cloning, setCloning] = useState(false);
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
@@ -256,11 +256,11 @@ function GitHubActions({ projectId, branch }: { projectId: string; branch: strin
                       {branch}
                     </button>
                     <button
-                      onClick={() => setPushBranch(`layrr/${branch}`)}
-                      className={`flex items-center gap-1.5 text-[10px] px-2.5 py-1 rounded-md border transition-colors ${pushBranch === `layrr/${branch}` ? 'border-foreground/20 bg-secondary text-foreground font-medium' : 'border-input text-muted-foreground hover:text-foreground'}`}
+                      onClick={() => setPushBranch(`laycode/${branch}`)}
+                      className={`flex items-center gap-1.5 text-[10px] px-2.5 py-1 rounded-md border transition-colors ${pushBranch === `laycode/${branch}` ? 'border-foreground/20 bg-secondary text-foreground font-medium' : 'border-input text-muted-foreground hover:text-foreground'}`}
                     >
                       <GitBranch className="h-3 w-3" />
-                      layrr/{branch}
+                      laycode/{branch}
                     </button>
                   </div>
                   <button

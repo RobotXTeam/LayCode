@@ -26,6 +26,12 @@ function parseCookies(header: string | undefined): Record<string, string> {
 function isAuthenticated(req: IncomingMessage): boolean {
   if (!ACCESS_TOKEN) return true; // no token configured = open access (CLI standalone mode)
 
+  // Local-only convenience: allow loopback requests without token
+  const remote = req.socket.remoteAddress || '';
+  if (remote === '127.0.0.1' || remote === '::1' || remote === '::ffff:127.0.0.1') {
+    return true;
+  }
+
   // Check query param
   const url = new URL(req.url || '/', `http://localhost`);
   if (url.searchParams.get('token') === ACCESS_TOKEN) return true;

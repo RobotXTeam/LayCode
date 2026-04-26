@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getSession } from "@/lib/auth";
+import { getSession, isLocalModeEnabled } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { users } from "@/lib/schema";
 import { eq } from "drizzle-orm";
@@ -11,24 +11,28 @@ export default async function DashboardLayout({
   children: React.ReactNode;
 }) {
   const session = await getSession();
-  if (!session.userId) redirect("/sign-in");
+  const localMode = isLocalModeEnabled();
 
-  const [user] = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
-  if (!user) redirect("/sign-in");
+  if (!localMode) {
+    if (!session.userId) redirect("/sign-in");
 
-  const status = user.subscriptionStatus;
-  const hasAccess =
-    status === "active" ||
-    (status === "trialing" && user.subscriptionEndsAt && user.subscriptionEndsAt > new Date()) ||
-    (status === "canceled" && user.subscriptionEndsAt && user.subscriptionEndsAt > new Date());
-  if (!hasAccess) redirect("/pricing");
+    const [user] = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
+    if (!user) redirect("/sign-in");
+
+    const status = user.subscriptionStatus;
+    const hasAccess =
+      status === "active" ||
+      (status === "trialing" && user.subscriptionEndsAt && user.subscriptionEndsAt > new Date()) ||
+      (status === "canceled" && user.subscriptionEndsAt && user.subscriptionEndsAt > new Date());
+    if (!hasAccess) redirect("/pricing");
+  }
 
   return (
     <div className="min-h-screen">
       <nav className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-xl border-b border-border">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-4 sm:px-6 h-14">
           <Link href="/dashboard" className="text-[13px] font-bold tracking-tight">
-            layrr
+            LayCode
           </Link>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-3">

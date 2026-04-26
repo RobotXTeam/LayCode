@@ -29,7 +29,7 @@ export default function PricingPage() {
     <div className="min-h-screen flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <h1 className="text-xl font-bold mb-2">layrr</h1>
+          <h1 className="text-xl font-bold mb-2">LayCode</h1>
           <p className="text-sm text-muted-foreground">Subscribe to keep building.</p>
         </div>
 

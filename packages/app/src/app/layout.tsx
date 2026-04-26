@@ -8,7 +8,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Layrr",
+  title: "LayCode",
   description: "Point, click, and edit any web app with AI",
 };
 

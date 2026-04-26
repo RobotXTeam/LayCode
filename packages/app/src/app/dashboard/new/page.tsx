@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Sparkles, Loader2, ArrowLeft } from "lucide-react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 
-export default function NewWebsitePage() {
+function NewWebsitePageContent() {
   const searchParams = useSearchParams();
   const [name, setName] = useState(searchParams.get("name") || "");
   const [prompt, setPrompt] = useState(searchParams.get("prompt") || "");
@@ -92,5 +92,13 @@ export default function NewWebsitePage() {
         </button>
       </div>
     </motion.div>
+  );
+}
+
+export default function NewWebsitePage() {
+  return (
+    <Suspense fallback={<div className="text-sm text-muted-foreground">Loading...</div>}>
+      <NewWebsitePageContent />
+    </Suspense>
   );
 }
