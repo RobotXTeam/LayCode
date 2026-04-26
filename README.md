@@ -1,153 +1,244 @@
-# LayCode
+<p align="center">
+  <img src="assets/logo.svg" width="132" alt="LayCode logo" />
+</p>
 
-LayCode 是一个本地可视化 UI 编辑器。你可以直接在浏览器里点选页面元素、描述要改什么，然后把改动转成：
+<h1 align="center">LayCode</h1>
 
-1. 清晰的自然语言修改指令（中英双语）
-2. git diff 风格补丁片段
+<p align="center">
+  AI-native visual code editor for frontend teams. Point at any UI element in a live app, describe the change in plain English, and let the AI edit the source code for you.
+</p>
 
-适合产品经理、设计师、运营同学和不想反复手写提示词的开发者。
+<p align="center">
+  <a href="README.zh-CN.md">中文</a>
+  ·
+  <a href="https://github.com/RobotXTeam/LayCode/releases">Releases</a>
+  ·
+  <a href="https://github.com/RobotXTeam/LayCode">Source Code</a>
+</p>
 
-## 核心特性
+<p align="center">
+  <img alt="Node.js" src="https://img.shields.io/badge/Node.js-18+-339933?logo=node.js&logoColor=white">
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5.0+-3178C6?logo=typescript&logoColor=white">
+  <img alt="Next.js" src="https://img.shields.io/badge/Next.js-16-000000?logo=next.js&logoColor=white">
+  <img alt="License" src="https://img.shields.io/badge/License-MIT-green">
+</p>
 
-1. 本地单机可用，默认免登录
-2. 支持导入本地前端项目目录
-3. 兼容 React/Vite、Vue/Vite、纯 HTML 项目
-4. 可视化编辑后可直接回写源码
-5. 自动生成变更说明、可一键复制或导出
-6. 内置 Project Explorer（三栏）：文件树、源码预览、属性映射
+---
 
-## 适用场景
+## What Is LayCode?
 
-1. 先让 AI 生成页面，再用可视化方式做精细调整
-2. 不想手动组织复杂修改提示词
-3. 希望把视觉改动沉淀为可复用的改动说明和补丁
+LayCode is a visual AI code editor built for frontend developers, designers, and product teams who want to iterate fast on UI changes without context-switching between browser and editor.
 
-## 环境要求
+You run a local dev server as usual. LayCode proxies it, injects a lightweight browser overlay, and surfaces every UI element with its source location. Click any element, type a plain-English instruction, and the AI agent rewrites the underlying source code — React components, Vue files, or plain HTML/CSS.
 
-1. Node.js >= 18（推荐 20）
-2. pnpm >= 10
-3. Linux 或 macOS
+Two modes:
 
-## 快速开始（3 分钟）
+| Mode | Description |
+|------|-------------|
+| **CLI** | Open-source, proxies any local dev server (`npx layrr --port 3000`) |
+| **Web App** | Dashboard for importing GitHub repos or bootstrapping from templates, with full process management |
 
-### 1. 安装依赖
+## Product Capabilities
+
+- **Visual element selection** — click any element on a live page; overlay shows source file + line number
+- **Plain-English edits** — describe the change you want; AI generates and applies a source diff
+- **Multi-framework support** — React/Vite, Vue/Vite, Next.js, plain HTML projects
+- **Git-aware version history** — preview, restore, or revert any edit session from the overlay panel
+- **Change notes export** — bilingual (EN/ZH) modification log + git diff patch, copy or download
+- **Project explorer** — three-column file tree, source preview, and style attribute mapper
+- **GitHub integration** — import repos directly, push changes back via the dashboard
+- **Template bootstrapping** — name a project, write a prompt, AI generates the first version
+- **Desktop client** — Electron window mode, no browser tab required
+- **Self-hosted agent option** — run your own AI coding agent (Claude Code, OpenAI Codex, or Pi Mono via OpenRouter)
+
+## Architecture
+
+```text
+Browser (editing session)                         Dashboard (project management)
+       │                                                  │
+       │                                                  │ HTTP
+       ▼                                                  ▼
+┌──────────────────────┐                     ┌──────────────────────┐
+│  LayCode Proxy       │                     │  Next.js Dashboard   │
+│  :6100+              │◄───────────────────►│  :3000               │
+│  injects overlay      │                     │  SQLite + GitHub OAuth│
+└──────────┬───────────┘                     └──────────┬───────────┘
+           │                                             │
+           │ WebSocket                                  │ HTTP
+           ▼                                             ▼
+┌──────────────────────┐                     ┌──────────────────────┐
+│  Hono Server         │                     │  Hono Process Manager │
+│  :8787               │                     │  :8787               │
+│  edit queue          │                     │  workspace lifecycle  │
+└──────────┬───────────┘                     └──────────┬───────────┘
+           │                                             │
+           │                                             ▼
+           │                              ┌──────────────────────┐
+           │                              │  Child Processes     │
+           │                              │  dev server :5100+   │
+           │                              │  layrr proxy  :6100+ │
+           ▼                              └──────────────────────┘
+┌──────────────────────┐
+│  AI Coding Agent     │
+│  (Claude / Codex /   │
+│   Pi Mono via        │
+│   OpenRouter)        │
+└──────────────────────┘
+```
+
+Core packages:
+
+- `packages/cli/` — Standalone CLI (`layrr`) with proxy, overlay injection, and WebSocket routing
+- `packages/app/` — Next.js 16 dashboard with project grid, GitHub OAuth, edit history, and push controls
+- `packages/server/` — Hono process manager for workspace lifecycle (clone, start, stop, fresh-clone)
+- `packages/cli/src/agents/` — Pluggable AI agents: Claude Code (bundled SDK), OpenAI Codex, Pi Mono (OpenRouter)
+
+## Quick Start
+
+### 1. Install dependencies
 
 ```bash
 pnpm install
 ```
 
-### 2. 启动服务
+### 2. Start all services
 
 ```bash
 ./dev.sh
 ```
 
-### 3. 打开地址
+This starts:
+- **Dashboard** at `http://localhost:3000`
+- **Process Manager API** at `http://localhost:8787`
 
-1. Dashboard: http://localhost:3000/dashboard
-2. Server API: http://localhost:8787
+### 3. Open the dashboard
 
-## 完整使用流程
-
-### 第一步：导入本地项目
-
-1. 打开 http://localhost:3000/dashboard/import
-2. 在 Import Local Project 区块输入本地绝对路径
-3. 创建项目后进入项目详情页
-
-### 第二步：启动可视化编辑器
-
-1. 点击 Start Editor
-2. 系统会自动识别框架、安装依赖、启动 dev server 与代理
-3. 启动后打开 Editor（通常是 6100/6101 端口）
-
-### 第三步：可视化修改页面
-
-1. 点击页面元素
-2. 输入修改指令（例如颜色、圆角、尺寸、文本）
-3. 查看实时生效结果
-
-### 第四步：导出修改说明与补丁
-
-编辑器右侧 Change Notes 支持：
-
-1. 中文/英文切换
-2. Copy 复制全部修改说明
-3. Export 导出为 Markdown
-4. 查看 git diff 风格片段
-
-示例指令：
-
-请将 button#hero-button 的 background-color 从 #007bff 改为 #1a1a2e，并将 border-radius 调整为 12px。
-
-## Project Explorer 使用说明
-
-项目页内置三栏区域：
-
-1. 左侧：文件树（浏览项目结构）
-2. 中间：源码预览（点击文件即时查看）
-3. 右侧：属性映射（提取可编辑样式线索与提示模板）
-
-这个面板适合在可视化编辑前快速定位文件和样式方向。
-
-## 本地自测（建议首次运行后执行）
-
-```bash
-./scripts/self-test-local-import.sh
+```
+http://localhost:3000/dashboard
 ```
 
-脚本会自动验证：
+### 4. Create a project
 
-1. React 示例导入与代理注入
-2. HTML 示例导入与代理注入
+- **Import from GitHub** — click **Import**, authenticate with GitHub, search and select a repo
+- **Bootstrap from template** — click **New Website**, enter a name and a prompt describing the site you want
 
-## 与 AI 协作最佳实践
+### 5. Launch the visual editor
 
-1. 在 LayCode 内先完成可视化调整
-2. 从 Change Notes 复制中文说明或英文说明
-3. 连同 diff 片段粘贴给 AI（如 ChatGPT/Claude/Codex）
-4. 让 AI 在目标仓库中批量应用
-5. 回到 LayCode 再做精修
+Click **Start Editor** on any project. LayCode detects the framework, installs dependencies, starts the dev server and proxy, and opens the editor URL (typically `http://localhost:6100`).
 
-## 常见问题
+### 6. Edit visually
 
-### 1) 6100/6101 打不开
+1. Navigate to any page in the running app
+2. Click the element you want to change
+3. Type your instruction in the chat panel (e.g. `"change the hero button color to #1a1a2e and set border-radius to 12px"`)
+4. Review the diff, confirm, and the source code is updated
 
-1. 先确认项目状态：是否点击过 Start Editor
-2. 检查端口占用：`ss -ltnp | grep -E ':6100|:6101'`
-3. 重新跑一遍自测脚本：`./scripts/self-test-local-import.sh`
+## Desktop Client
 
-### 2) 页面显示但编辑不生效
+For a window-based experience without browser tabs:
 
-1. 检查 agent 是否可用
-2. 查看 server 日志与 project logs
-3. 尝试更明确的指令（包含目标元素和属性）
+```bash
+pnpm desktop:dev
+```
 
-### 3) 本地项目依赖安装慢
+This starts the server + dashboard automatically and opens an Electron window.
 
-1. 首次安装属于正常
-2. 建议提前在项目目录执行一次 `pnpm install` 或 `npm install`
+### Beta launcher (works from any directory)
 
-## 目录结构（简版）
+```bash
+cd /home/steven/work/cli/LayCode
+pnpm beta:install      # install the laycode-beta CLI once
+laycode-beta start     # launch desktop app from anywhere
+laycode-beta check     # check port status
+laycode-beta stop      # stop all LayCode processes
+```
 
-1. packages/cli: 可视化代理与 overlay
-2. packages/app: Dashboard 与 API
-3. packages/server: 进程管理与项目编排
-4. samples: 本地自测示例项目
+## Environment Variables
 
-## 免责声明
+Create or edit `.env` at the repository root:
 
-1. LayCode 基于 Layrr 开源项目二次开发（MIT 许可）
-2. 默认工作流在本地执行，不主动上传你的代码
+```env
+GITHUB_CLIENT_ID=        # GitHub OAuth app client ID
+GITHUB_CLIENT_SECRET=    # GitHub OAuth app client secret
+GITHUB_REDIRECT_URI=http://localhost:3000/api/auth/github/callback
+SESSION_SECRET=          # 32+ character random string
+SERVER_PORT=8787
+SERVER_SECRET=dev-secret
+LAYRR_SERVER_URL=http://localhost:8787
+LAYRR_SERVER_SECRET=dev-secret
+OPENROUTER_API_KEY=      # required for Pi Mono agent
+LAYRR_AGENT=pi-mono      # default agent (pi-mono | claude | codex)
+```
+
+## Repository Layout
+
+```text
+packages/
+  cli/                   Standalone CLI (layrr)
+    src/
+      agents/            AI agent implementations (Claude, Codex, Pi Mono)
+      server/            HTTP proxy + WebSocket + edit queue
+      overlay/           Browser UI (vanilla TS, IIFE bundle)
+  app/                   Next.js 16 dashboard
+    src/
+      app/               Pages (dashboard, project, sign-in)
+      lib/               Auth, DB, schema, server API, GitHub API
+  server/                Hono process manager
+    templates/           Next.js + shadcn/ui bootstrap template
+scripts/
+  build.ts               Overlay bundler (esbuild + tsc + fonts)
+  install-beta-launcher.sh
+  self-test-local-import.sh
+assets/                  Logo and branding assets
+```
+
+## Framework Detection
+
+The server auto-detects the framework from `package.json` and starts the appropriate dev command:
+
+| Framework | Dev Command |
+|-----------|-------------|
+| Next.js | `pnpm dev` |
+| React/Vite | `pnpm dev` |
+| Vue/Vite | `pnpm dev` |
+| Plain HTML | Static file server |
+| shadcn/ui template | `pnpm dev` |
+
+## Security Model
+
+- **No cloud upload by default** — editing happens locally; code never leaves your machine unless you explicitly push
+- **GitHub OAuth** — only read/write permission to repos you authorize; tokens stored in SQLite, never in git
+- **Session management** — iron-session cookies with configurable expiry; secrets loaded from environment
+- **Workspace isolation** — each project runs in its own workspace directory (`~/.layrr/workspaces/{projectId}/`)
+- **Port isolation** — dev servers use port pools 5100–5199, proxies 6100–6199, checked for availability before bind
+- **Process cleanup** — orphaned processes are scanned and killed on server startup
+
+## Roadmap
+
+- [ ] Signed macOS DMG and Windows MSI desktop installers
+- [ ] Native service mode (run as system daemon)
+- [ ] Multi-agent parallel editing (multiple AI agents editing simultaneously)
+- [ ] Team collaboration layer (shared edit sessions)
+- [ ] VS Code extension (in-editor visual mode without leaving IDE)
+- [ ] Plugin API for custom elements / component libraries
+- [ ] External PostgreSQL backend for multi-tenant deployment
+- [ ] High availability mode for the process manager
+
+## Commercial Positioning
+
+LayCode is designed for teams and solo developers who want to:
+
+- Move from design to production without manual CRUD between Figma, Slack, and the codebase
+- Let non-engineers propose UI changes in plain English while engineers stay in control of the diff
+- Capture every AI-assisted edit as a versioned, reviewable commit
+- Run a fully self-hosted AI editing pipeline without vendor lock-in
+
+LayCode is free for individual use and small teams. Commercial licensing for larger deployments is under evaluation.
 
 ## License
 
-MIT
+MIT License. See [LICENSE](LICENSE) for details.
 
+---
 
-
-
-
-
-
-
+LayCode is a commercial distribution of [Layrr](https://github.com/thetronjohnson/layrr), originally licensed under MIT.
