@@ -660,6 +660,12 @@
 
   // ---- Document-level listeners: added ONCE in start() ----
   function setupGlobalListeners() {
+    const isInteractiveTarget = (el: HTMLElement): boolean => {
+      if (el.isContentEditable) return true;
+      const interactive = el.closest('a,button,input,textarea,select,label,summary,details,[role="button"],[role="link"],[role="menuitem"],[tabindex]');
+      return !!interactive;
+    };
+
     // Mousemove — hover highlight + drag
     document.addEventListener('mousemove', (e: MouseEvent) => {
       const bar = app.barEl;
@@ -695,6 +701,14 @@
       if (app.mode !== 'edit') return;
       const t = e.target as HTMLElement;
       if (isOwn(t)) return;
+
+      // Keep interactive controls usable in edit mode.
+      // Hold Alt/Ctrl/Cmd to force-select these controls for editing.
+      const forceSelect = e.altKey || e.ctrlKey || e.metaKey;
+      if (!forceSelect && isInteractiveTarget(t)) {
+        return;
+      }
+
       e.preventDefault(); e.stopPropagation();
 
       const hl = app.hlEl;
