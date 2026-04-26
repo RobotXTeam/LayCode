@@ -37,9 +37,14 @@ export function LocalProjectForm() {
           branch: "main",
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "创建本地项目失败");
-      router.push(`/dashboard/project/${data.id}`);
+      let data = {};
+      try {
+        data = await res.json();
+      } catch (e) {
+        throw new Error(`服务器返回非 JSON 错误 (状态码: ${res.status})`);
+      }
+      if (!res.ok) throw new Error((data as any).error || "创建本地项目失败");
+      router.push(`/dashboard/project/${(data as any).id}`);
     } catch (err: any) {
       setError(err.message || "创建本地项目失败");
       setLoading(false);
@@ -54,16 +59,37 @@ export function LocalProjectForm() {
       </p>
 
       <div className="mt-4 space-y-3">
-        <input
-          type="text"
-          value={localPath}
-          onChange={(e) => {
-            setLocalPath(e.target.value);
-            if (!name.trim()) setName(normalizeNameFromPath(e.target.value));
-          }}
-          placeholder="/absolute/path/to/project"
-          className="w-full h-10 px-4 rounded-lg border border-input bg-secondary text-sm placeholder:text-muted-foreground outline-none focus:border-ring transition-colors"
-        />
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={localPath}
+            onChange={(e) => {
+              setLocalPath(e.target.value);
+              if (!name.trim()) setName(normalizeNameFromPath(e.target.value));
+            }}
+            placeholder="/absolute/path/to/project"
+            className="flex-1 h-10 px-4 rounded-lg border border-input bg-secondary text-sm placeholder:text-muted-foreground outline-none focus:border-ring transition-colors"
+          />
+          <button
+            onClick={async () => {
+              // @ts-ignore
+              if (window.laycodeDesktop?.pickDirectory) {
+                // @ts-ignore
+                const result = await window.laycodeDesktop.pickDirectory();
+                if (result && !result.canceled && result.filePaths?.length > 0) {
+                  const path = result.filePaths[0];
+                  setLocalPath(path);
+                  if (!name.trim()) setName(normalizeNameFromPath(path));
+                }
+              } else {
+                setError("当前非桌面应用环境，无法调出文件夹选择器，请手动输入。");
+              }
+            }}
+            className="h-10 px-4 rounded-md bg-secondary border border-border text-xs font-semibold hover:bg-secondary/80 focus:ring-2 focus:ring-ring transition-colors shrink-0"
+          >
+            选择目录...
+          </button>
+        </div>
         <input
           type="text"
           value={name}

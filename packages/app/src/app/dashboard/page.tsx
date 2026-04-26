@@ -4,7 +4,7 @@ import { projects } from "@/lib/schema";
 import { eq, desc } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { GitBranch, Sparkles, Globe, FileText } from "lucide-react";
+import { GitBranch, Sparkles, Globe, FileText, FolderOpen } from "lucide-react";
 import { ProjectActions } from "./actions";
 import { Welcome } from "./welcome";
 
@@ -66,16 +66,24 @@ export default async function DashboardPage() {
           <div className="mb-8">
             <Welcome name={displayName} />
             <p className="text-xs text-muted-foreground">Describe what you want and AI will build it.</p>
+            <p className="text-xs text-muted-foreground mt-1">本地模式已启用：无需登录，优先导入本地项目目录。</p>
           </div>
 
           {/* Actions */}
-          <div className="grid grid-cols-2 gap-3 mb-8">
+          <div className="grid grid-cols-3 gap-3 mb-8">
             <Link
               href="/dashboard/new"
               className="flex items-center justify-center gap-2 rounded-lg ring-1 ring-foreground/10 py-3 text-sm font-medium hover:ring-foreground/20 transition-all"
             >
               <Sparkles className="h-4 w-4 text-muted-foreground" />
               Create new
+            </Link>
+            <Link
+              href="/dashboard/import"
+              className="flex items-center justify-center gap-2 rounded-lg ring-1 ring-foreground/10 py-3 text-sm font-medium hover:ring-foreground/20 transition-all"
+            >
+              <FolderOpen className="h-4 w-4 text-muted-foreground" />
+              Import Local HTML/React
             </Link>
             <ProjectActions showNewButton={false} githubConnected={!!session.githubToken} inline />
           </div>
